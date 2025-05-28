@@ -1,5 +1,7 @@
 .history
-.vs_code
+*.vs_code
 .DS_Store
 
 *.pth
+
+diff-foley

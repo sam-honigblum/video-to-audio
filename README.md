@@ -12,10 +12,10 @@
 
 ### How the whole pipeline runs
 
-1. **Encode** `z₀ = AudioAutoencoder.encode(spectrogram)` → **16× smaller** latent space for efficiency.   
-2. **Visual cues** `v = VideoEncoder.encode(frames)` → time-aligned CAVP tokens.   
-3. **Diffusion** Add noise → `z_t`. The UNet denoises step-by-step, guided by cross-attention on **v**.  
-4. **Sample** `ẑ₀ = Sampler.sample(LatentDiffusion, v, N_steps)`  
+1. **Encode** `z₀ = AudioAutoencoder.encode(spectrogram)` → **16× smaller** latent space for efficiency.
+2. **Visual cues** `v = VideoEncoder.encode(frames)` → time-aligned CAVP tokens.
+3. **Diffusion** Add noise → `z_t`. The UNet denoises step-by-step, guided by cross-attention on **v**.
+4. **Sample** `ẑ₀ = Sampler.sample(LatentDiffusion, v, N_steps)`
 5. **Decode** `spectrogram̂ = AudioAutoencoder.decode(ẑ₀)` → inverse STFT → final WAV, now in sync with the video.
 
 That’s the entire Diff-Foley loop in fewer than 50 lines of glue code.
