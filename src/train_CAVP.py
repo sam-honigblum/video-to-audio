@@ -23,6 +23,9 @@ from tqdm import tqdm
 from utils.data_loader import make_dataloader            # returns dict with keys: video, mel, video_id
 from models.video_encoder import CAVP, CAVP_Loss         # model & loss share logit_scale
 
+from torch.utils.data import DataLoader
+from utils.dataset import VidSpectroDataset
+
 
 # ────────────────────────────────────────────────────────────────────────────
 #  Training procedure
@@ -32,7 +35,11 @@ def train_cavp(cfg: OmegaConf) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # 1 ─ Data ----------------------------------------------------------------
-    loader = make_dataloader(cfg.data, split="train")  # should yield mel‑spectrograms, not raw wav
+    # loader = make_dataloader(cfg.data, split="train")  # should yield mel‑spectrograms, not raw wav
+
+    # # pytorch dataloader support
+    dataset = VidSpectroDataset(cfg.data.path, device=device)
+    loader = DataLoader(dataset, batch_size=cfg.data.batch_size, num_workers=cfg.data.num_workers)
 
     # 2 ─ Model + Loss --------------------------------------------------------
     model = CAVP(feat_dim=cfg.model.feat_dim,
