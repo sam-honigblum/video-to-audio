@@ -15,15 +15,42 @@ import math
 from cavp_modules import Cnn14, ResNet3dSlowOnly
 
 class CAVP(nn.Module):
-    def __init__(self, feat_dim=512):
+    def __init__(self, feat_dim=512, temperature=0.07):
         super().__init__()
 
         self.video_encoder = ResNet3dSlowOnly(depth=50)
-        self.audio_encoder = Cnn14()
+        self.video_projection = nn.Linear(2048, feat_dim)
+        self.video_temporal_pool = nn.MaxPool1d(kernel_size=16)
 
-    def forward(self, x):
+        self.audio_encoder = Cnn14(feat_dim=feat_dim)
+        self.audio_temporal_pool = nn.MaxPool1d(kernel_size=16)
 
-        pass
+        self.logit_scale = nn.Parameter(torch.ones([]) * torch.log(1 / temperature))
+
+    def forward(self, video, spectrogram):
+        """
+        video: (B, 3, T, H, W)
+        spectrogram: (B, 1, mel_num, T)
+        """
+        # video encode
+        video_feat = self.video_encoder(video)
+        b, c, t, h, w = self.video_feat.shape
+        video_feat = video_feat.reshape(b, c, t).permute(0, 2, 1)
+        video_feat = self.video_projection(video_feat)
+        video_feat = self.video_temporal_pool(video_feat.permute(0, 2, 1)).squeeze(-1)
+        video_norm = F.normalize(video_feat, dim=-1)
+
+        # audio encode
+        spectrogram = spectrogram.permute(0, 1, 3, 2) # (B, 1, T, mel_num)
+        spectrogram_feat = self.audio_encoder(spectrogram) #(B, T, C)
+        spectrogram_feat = self.audio_temporal_pool(spectrogram_feat.permute(0, 2, 1).squeeze(-1))
+        spectrogram_norm = F.normalize(spectrogram_feat, dim=-1)
+
+        return {
+            "video_features": video_norm,
+            "audio_features": spectrogram_norm,
+            "logit_scale": self.logit_scale.exp()
+        }
 
 class _CLIPStyleLoss(nn.Module):
     def __init__(self, logit_scale_init: float = 4.19):
@@ -34,7 +61,8 @@ class _CLIPStyleLoss(nn.Module):
         self,
         audio: torch.Tensor,             # (B, D)
         video: torch.Tensor,             # (B, D)
-        positive_mask: torch.Tensor      # (B, B)  True ⇒ (i,j) is a positive
+        positive_mask: torch.Tensor
+                  # (B, B)  True ⇒ (i,j) is a positive
     ) -> torch.Tensor:
         B, D = audio.shape
         # 1. l2-normalise
@@ -48,7 +76,7 @@ class _CLIPStyleLoss(nn.Module):
         # 3. mask out *unwanted* positives by setting them to −∞
         pos_index_row = positive_mask.float().argmax(dim=1)   # (B,)
         pos_index_col = positive_mask.float().argmax(dim=0)   # (B,)
-        
+
         loss_a2v = F.cross_entropy(logits,     pos_index_row)
         loss_v2a = F.cross_entropy(logits.T,   pos_index_col)
         return 0.5 * (loss_a2v + loss_v2a)
