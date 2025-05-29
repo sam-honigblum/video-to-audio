@@ -1,6 +1,3 @@
-# =============================================================================
-# Python dependencies for Diff-Foley reproduction
-# -----------------------------------------------------------------------------
 torch==2.2.0
 torchvision==0.17.0
 torchaudio==2.2.0
@@ -14,4 +11,5 @@ ffmpeg-python==0.2.0
 audiocraft>=1.3.0 #needed for audio autoencoder
 mmcv==2.0.0
 torchlibrosa>=0.1.0
-# =============================================================================
+tqdm>=4.65.0 #needed for training loop
+
