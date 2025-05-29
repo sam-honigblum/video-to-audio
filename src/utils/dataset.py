@@ -35,7 +35,7 @@ class VidSpectroDataset (Dataset):
         super().__init__()
         self.device = device
         self.data_path = data_path
-        self.ids
+        self.ids = self.get_ids()
 
     def aud_to_spec(self, name):
         wav, sr = torchaudio.load(f"{self.data_path}/{name}.wav")  # (channels, time)
