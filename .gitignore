@@ -1,0 +1,11 @@
+.history
+.vs_code
+.DS_Store
+
+*.pth
+
+diff-foley
+SlowFast
+
+src/.DS_Store
+.DS_Store
