@@ -25,7 +25,7 @@ class CAVP(nn.Module):
         self.audio_encoder = Cnn14(feat_dim=feat_dim)
         self.audio_temporal_pool = nn.MaxPool1d(kernel_size=16)
 
-        self.logit_scale = nn.Parameter(torch.ones([]) * torch.log(1 / temperature))
+        self.logit_scale = nn.Parameter(torch.log(torch.tensor(1.0 / temperature)))
 
     def forward(self, video, spectrogram):
         """
@@ -34,7 +34,7 @@ class CAVP(nn.Module):
         """
         # video encode
         video_feat = self.video_encoder(video)
-        b, c, t, h, w = self.video_feat.shape
+        b, c, t, h, w = video_feat.shape
         video_feat = video_feat.reshape(b, c, t).permute(0, 2, 1)
         video_feat = self.video_projection(video_feat)
         video_feat = self.video_temporal_pool(video_feat.permute(0, 2, 1)).squeeze(-1)
@@ -43,26 +43,22 @@ class CAVP(nn.Module):
         # audio encode
         spectrogram = spectrogram.permute(0, 1, 3, 2) # (B, 1, T, mel_num)
         spectrogram_feat = self.audio_encoder(spectrogram) #(B, T, C)
-        spectrogram_feat = self.audio_temporal_pool(spectrogram_feat.permute(0, 2, 1).squeeze(-1))
+        spectrogram_feat = self.audio_temporal_pool(spectrogram_feat.permute(0, 2, 1))
         spectrogram_norm = F.normalize(spectrogram_feat, dim=-1)
 
-        return {
-            "video_features": video_norm,
-            "audio_features": spectrogram_norm,
-            "logit_scale": self.logit_scale.exp()
-        }
+        return video_norm, spectrogram_norm
 
 class _CLIPStyleLoss(nn.Module):
-    def __init__(self, logit_scale_init: float = 4.19):
+    def __init__(self, shared_logit_scale: nn.Parameter):
         super().__init__()
-        self.logit_scale = nn.Parameter(torch.tensor(logit_scale_init))
+        self.logit_scale = shared_logit_scale
+        
 
     def forward(
         self,
         audio: torch.Tensor,             # (B, D)
         video: torch.Tensor,             # (B, D)
-        positive_mask: torch.Tensor
-                  # (B, B)  True ⇒ (i,j) is a positive
+        positive_mask: torch.Tensor,      # (B, B)  True ⇒ (i,j) is a positive
     ) -> torch.Tensor:
         B, D = audio.shape
         # 1. l2-normalise
@@ -71,7 +67,7 @@ class _CLIPStyleLoss(nn.Module):
 
         # 2. similarity · τ⁻¹
         logits = (self.logit_scale.exp().clamp(max=100) *
-                  a @ v.T)                       # (B, B)
+                   a @ v.T)                       # (B, B)
 
         # 3. mask out *unwanted* positives by setting them to −∞
         pos_index_row = positive_mask.float().argmax(dim=1)   # (B,)
@@ -88,10 +84,10 @@ class CAVP_Loss(nn.Module):
         L_extra  - semantic contrast  (different videos)
         L_intra  - temporal contrast  (other segments of same video)
     """
-    def __init__(self, lambda_: float = 1.0, temperature: float = 0.07):
+    def __init__(self, shared_logit_scale: nn.Parameter, lambda_: float = 1.0):
         super().__init__()
         self.lambda_   = lambda_
-        self.clip_loss = _CLIPStyleLoss(logit_scale_init=math.log(1/temperature))
+        self.clip_loss = _CLIPStyleLoss(shared_logit_scale)
 
     # ======= public entry =================================================
     def forward(

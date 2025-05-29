@@ -1,0 +1,4 @@
+data:
+  path: "/content/drive/MyDrive/College/Tsinghua/Multi-modal_Machine_Learning/MMML_Project/data/processed"
+  batch_size: 16
+  num_workers: 4
