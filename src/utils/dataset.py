@@ -85,7 +85,7 @@ class VidSpectroDataset (Dataset):
         return res
 
     def __len__(self):
-        return len(self.data)
+        return len(self.ids)
 
     def __getitem__(self, idx):
         name = self.ids[idx]
