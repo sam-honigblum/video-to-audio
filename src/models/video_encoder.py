@@ -12,7 +12,7 @@ from torch import nn
 import torch.nn.functional as F
 import math
 
-from cavp_modules import Cnn14, ResNet3dSlowOnly
+from .cavp_modules import Cnn14, ResNet3dSlowOnly
 
 class CAVP(nn.Module):
     def __init__(self, feat_dim=512, temperature=0.07):
@@ -52,7 +52,7 @@ class _CLIPStyleLoss(nn.Module):
     def __init__(self, shared_logit_scale: nn.Parameter):
         super().__init__()
         self.logit_scale = shared_logit_scale
-        
+
 
     def forward(
         self,

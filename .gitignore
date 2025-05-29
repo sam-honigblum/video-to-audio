@@ -1,7 +1,7 @@
 .history
 .vs_code
 
-*.pth
+# *.pth
 
 diff-foley
 SlowFast
