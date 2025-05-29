@@ -61,7 +61,8 @@ class _CLIPStyleLoss(nn.Module):
         self,
         audio: torch.Tensor,             # (B, D)
         video: torch.Tensor,             # (B, D)
-        positive_mask: torch.Tensor      # (B, B)  True ⇒ (i,j) is a positive
+        positive_mask: torch.Tensor
+                  # (B, B)  True ⇒ (i,j) is a positive
     ) -> torch.Tensor:
         B, D = audio.shape
         # 1. l2-normalise
