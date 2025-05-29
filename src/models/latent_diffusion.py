@@ -23,7 +23,9 @@ import torch.nn as nn
 from torch.optim import AdamW
 from .audio_autoencoder import EncodecWrapper
 from .video_encoder     import VideoEncoder
-from .sampler           import DDIMSampler
+from .sampler import DPMSolverSampler
+
+
 
 # -----------------------------------------------------------------------------
 
@@ -62,7 +64,7 @@ class LatentDiffusion(nn.Module):
         self.unet = unet
 
         # DDIM / DPM sampler wrapper
-        self.sampler = DDIMSampler(self)
+        self.sampler = DPMSolverSampler(self)
 
         # ------------------------------------------------------------------ 2
         # Pre-compute β / ᾱ lookup tables

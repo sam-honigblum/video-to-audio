@@ -3,6 +3,8 @@
 # Role: DPM‑Solver sampler wrapper for latent‑diffusion inference
 # -----------------------------------------------------------------------------
 # • Implements Lu et al.'s multistep **DPM‑Solver++** only (no DDIM fallback).
+# • Keeps an alias `ddim_sample()` so legacy calls stay valid.
+# • Relies on 🤗 diffusers ≥ 0.25 which already ships the scheduler.
 # =============================================================================
 
 from __future__ import annotations

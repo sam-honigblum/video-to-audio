@@ -1,10 +1,64 @@
 # =============================================================================
-# Config: configs/train.yaml  –  training overrides
+
+# Config: configs/train.yaml — Diff‑Foley Stage‑2 training
+
 # -----------------------------------------------------------------------------
-# batch_size : 8
-# epochs     : 250
-# guidance:
-#   classifier_free : 0.10
-#   double_guidance : true
-# ckpt_every_n_steps : 5000
-# =============================================================================
+
+run:
+exp\_name: difffoley\_stage2
+output\_dir: checkpoints/
+fp16: true            # use torch.cuda.amp for mixed precision
+
+# -----------------------------------------------------------------------------
+
+data:
+dataset: VGGSound
+root: data/
+duration\_seconds: 4   # each clip is 4 s (matches paper)
+sample\_rate: 24000    # EnCodec 24 kHz checkpoint
+fps: 25
+num\_workers: 8
+
+# -----------------------------------------------------------------------------
+
+model:
+codec: encodec\_24khz          # frozen neural codec
+latent\_channels: 8            # EnCodec token embedding dim
+unet:
+base\_channels: 320          # same as Diff‑Foley
+channel\_mults: \[1, 2, 2, 4]
+attention\_resolutions: \[4, 2, 1]
+num\_res\_blocks: 2
+cross\_attention\_heads: 8
+
+timesteps: 1000               # diffusion steps during training
+beta\_schedule:
+start: 1e-4
+end: 2e-2
+guidance\_prob: 0.2            # classifier‑free dropout (paper uses 0.2)
+classifier\_free: 0.10         # CFG weight for unconditional branch
+double\_guidance: true         # enable alignment classifier gradient
+
+# -----------------------------------------------------------------------------
+
+training:
+batch\_size: 8
+epochs: 250
+learning\_rate: 1e-4
+weight\_decay: 0.01
+gradient\_clip: 1.0
+
+ema:
+decay: 0.9999               # paper value
+start: 10000                # start EMA after warm‑up
+
+log\_every\_n\_steps: 100
+ckpt\_every\_n\_steps: 5000
+eval\_every\_n\_steps: 10000
+
+sampler:
+type: dpm\_solver            # faster at inference
+steps: 50                   # 50 DDIM/DPM steps (paper uses 50–100)
+guidance\_scale: 3.0         # CFG scale at inference
+
+resume\_from: null             # path to checkpoint, if resuming

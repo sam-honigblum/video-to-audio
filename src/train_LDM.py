@@ -27,37 +27,7 @@ from utils.data_loader import make_dataloader
 from models.latent_diffusion import LatentDiffusion
 from models.video_encoder import CAVP
 from models.audio_autoencoder import EncodecWrapper
-from models.sampler import DDIMSampler
-
-# ────────────────────────────────────────────────────────────────────────────
-#  UNet factory (diffusers) – kept here so train.py is self‑contained
-# ────────────────────────────────────────────────────────────────────────────
-try:
-    from diffusers import UNet2DConditionModel
-except ImportError:
-    raise RuntimeError("diffusers missing →  add diffusers>=0.25 to requirements.txt")
-
-
-def build_unet(in_channels: int, model_channels: int = 320) -> nn.Module:
-    """Light wrapper that mirrors Diff‑Foley’s UNet geometry."""
-    return UNet2DConditionModel(
-        sample_size=(1, 32),                 # (height, width) – height is dummy (1)
-        in_channels=in_channels,             # 8 for EnCodec‑24kHz
-        out_channels=in_channels,            # predict ε with same channels
-        layers_per_block=2,
-        block_out_channels=(model_channels, model_channels * 2, model_channels * 4),
-        down_block_types=(
-            "DownBlock2D",      # 1/2 W
-            "AttnDownBlock2D",  # 1/4 W + self‑attention
-            "AttnDownBlock2D",  # 1/8 W
-        ),
-        up_block_types=(
-            "AttnUpBlock2D",    # 1/4 W
-            "AttnUpBlock2D",    # 1/2 W
-            "UpBlock2D",        # full W
-        ),
-        cross_attention_dim=512,            # matches CAVP token size
-    )
+from models.unet import build_unet
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -119,7 +89,7 @@ def train_loop(cfg: OmegaConf) -> None:
     # 3 ─ Optimiser & EMA
     optimiser = optim.AdamW(ldm.unet.parameters(), lr=cfg.optim.lr, weight_decay=1e-2)
     ema = EMA(ldm.unet, decay=cfg.optim.ema_decay)
-    """"
+
     # 4 ─ Optionally resume
     start_step = 0
     ckpt_dir = Path(cfg.training.ckpt_dir)
@@ -132,7 +102,7 @@ def train_loop(cfg: OmegaConf) -> None:
         ema.shadow = state["ema"]
         start_step = state["step"] + 1
         print(f"▶ Resumed from step {start_step}.")
-    """"
+
     # 5 ─ Training
     global_step = start_step
     ldm.train()
