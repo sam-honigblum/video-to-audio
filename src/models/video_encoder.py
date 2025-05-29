@@ -25,6 +25,34 @@ class CAVP(nn.Module):
 
         pass
 
+class _CLIPStyleLoss(nn.Module):
+    def __init__(self, logit_scale_init: float = 4.19):
+        super().__init__()
+        self.logit_scale = nn.Parameter(torch.tensor(logit_scale_init))
+
+    def forward(
+        self,
+        audio: torch.Tensor,             # (B, D)
+        video: torch.Tensor,             # (B, D)
+        positive_mask: torch.Tensor      # (B, B)  True ⇒ (i,j) is a positive
+    ) -> torch.Tensor:
+        B, D = audio.shape
+        # 1. l2-normalise
+        a = F.normalize(audio, dim=-1)
+        v = F.normalize(video, dim=-1)
+
+        # 2. similarity · τ⁻¹
+        logits = (self.logit_scale.exp().clamp(max=100) *
+                  a @ v.T)                       # (B, B)
+
+        # 3. mask out *unwanted* positives by setting them to −∞
+        pos_index_row = positive_mask.float().argmax(dim=1)   # (B,)
+        pos_index_col = positive_mask.float().argmax(dim=0)   # (B,)
+        
+        loss_a2v = F.cross_entropy(logits,     pos_index_row)
+        loss_v2a = F.cross_entropy(logits.T,   pos_index_col)
+        return 0.5 * (loss_a2v + loss_v2a)
+
 class CAVP_Loss(nn.Module):
     """
     Implements   L_total = L_extra + λ · L_intra
