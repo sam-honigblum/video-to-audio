@@ -116,7 +116,7 @@ class Cnn14(nn.Module):
 
         super(Cnn14, self).__init__()
 
-        self.bn0 = nn.BatchNorm2d(64)
+        self.bn0 = nn.BatchNorm2d(128)
 
         self.conv_block1 = ConvBlock(in_channels=1, out_channels=64)
         self.conv_block2 = ConvBlock(in_channels=64, out_channels=128)
@@ -162,7 +162,7 @@ class Cnn14(nn.Module):
         lat_x = lat_x.transpose(1, 2)
         lat_x = F.relu_(self.fc1(lat_x))
         x = F.relu_(self.fc1(lat_x))
-        output = self.final_project(x)
+        output = self.fc_audioset(x)
         return output
 
 

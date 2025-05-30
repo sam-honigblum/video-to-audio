@@ -18,7 +18,7 @@ POWER         = 2.0           # power = 2 → power-spectrogram; 1 → amplitude
 
 TARGET_FPS   = 4        # keep it light; original is 30 fps
 TARGET_SIZE  = 224       # output H = W = 224
-FIXED_NUM_FRAMES = 32
+FIXED_NUM_FRAMES = 20
 
 mel_transform = torchaudio.transforms.MelSpectrogram(
 # mel_transform = torchlibrosa.stft.MelSpectrogram(
@@ -93,7 +93,7 @@ class VidSpectroDataset (Dataset):
         res = []
         for f in os.listdir(self.data_path):
             name, ext = os.path.splitext(f)
-            if name not in seen:
+            if ext == ".wav" and name not in seen:
                 res.append(name)
                 seen.add(name)
         return res

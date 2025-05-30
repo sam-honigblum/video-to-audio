@@ -44,7 +44,7 @@ class CAVP(nn.Module):
         # audio encode
         spectrogram = spectrogram.permute(0, 1, 3, 2) # (B, 1, T, mel_num)
         spectrogram_feat = self.audio_encoder(spectrogram) #(B, T, C)
-        spectrogram_feat = self.audio_temporal_pool(spectrogram_feat.permute(0, 2, 1))
+        spectrogram_feat = self.audio_temporal_pool(spectrogram_feat.permute(0, 2, 1)).squeeze(-1)
         spectrogram_norm = F.normalize(spectrogram_feat, dim=-1)
 
         return video_norm, spectrogram_norm
