@@ -1,7 +1,7 @@
 data:
   # path: "/content/drive/MyDrive/College/Tsinghua/Multi-modal_Machine_Learning/MMML_Project/data/processed"
   path: "/content/drive/MyDrive/MMML_Project/data/raw/vggsound"
-  batch_size: 64
+  batch_size: 2
   num_workers: 2
 model:
   feat_dim: 512
