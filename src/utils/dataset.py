@@ -18,6 +18,7 @@ POWER         = 2.0           # power = 2 → power-spectrogram; 1 → amplitude
 
 TARGET_FPS   = 4        # keep it light; original is 30 fps
 TARGET_SIZE  = 224       # output H = W = 224
+FIXED_NUM_FRAMES = 32
 
 mel_transform = torchaudio.transforms.MelSpectrogram(
 # mel_transform = torchlibrosa.stft.MelSpectrogram(
@@ -57,6 +58,18 @@ class VidSpectroDataset (Dataset):
             step = int(round(src_fps / TARGET_FPS))
             frames = frames[::step]                        # still (T, H, W, C)
 
+        T = frames.shape[0]
+        if T < FIXED_NUM_FRAMES:
+            # Pad with last frame
+            pad_len = FIXED_NUM_FRAMES - T
+            pad = frames[-1:].repeat(pad_len, 1, 1, 1)
+            frames = torch.cat([frames, pad], dim=0)
+        elif T > FIXED_NUM_FRAMES:
+            # Center crop temporally
+            start = (T - FIXED_NUM_FRAMES) // 2
+            frames = frames[start:start + FIXED_NUM_FRAMES]
+
+
         # 2) resize spatially and scale to [0, 1]
         frames = (
             torch.nn.functional.interpolate(
@@ -73,6 +86,7 @@ class VidSpectroDataset (Dataset):
         # 4) timestamps in seconds, 1-D tensor length T
         fps = src_fps / step
         t = torch.arange(frames.shape[1], dtype=torch.float32) / fps
+        return frames, t
 
     def get_ids(self):
         seen = set()
@@ -89,7 +103,14 @@ class VidSpectroDataset (Dataset):
 
     def __getitem__(self, idx):
         name = self.ids[idx]
-        return self.aud_to_spec(name), self.gen_vid(name)
+        spec = self.aud_to_spec(name)
+        vid, _ = self.gen_vid(name)
+        return {
+          "audio": spec,
+          "video": vid,
+          "id": torch.tensor([idx])
+        },
+        name
 
         # in memory data
         # return self.data[idx][0], self.data[idx][1]

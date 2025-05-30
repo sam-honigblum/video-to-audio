@@ -1498,6 +1498,7 @@ class ResNet3dSlowOnly(ResNet3dPathway):
 
     def __init__(
         self,
+        lateral=False,
         conv1_kernel: Sequence[int] = (1, 7, 7),
         conv1_stride_t: int = 1,
         pool1_stride_t: int = 1,

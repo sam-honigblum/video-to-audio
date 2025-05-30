@@ -18,7 +18,7 @@ class CAVP(nn.Module):
     def __init__(self, feat_dim=512, temperature=0.07):
         super().__init__()
 
-        self.video_encoder = ResNet3dSlowOnly(depth=50)
+        self.video_encoder = ResNet3dSlowOnly(depth=50, pretrained=None)
         self.video_projection = nn.Linear(2048, feat_dim)
         self.video_temporal_pool = nn.MaxPool1d(kernel_size=16)
 
@@ -29,12 +29,13 @@ class CAVP(nn.Module):
 
     def forward(self, video, spectrogram):
         """
-        video: (B, 3, T, H, W)
+        video: (B, C, T, H, W)
         spectrogram: (B, 1, mel_num, T)
         """
         # video encode
         video_feat = self.video_encoder(video)
         b, c, t, h, w = video_feat.shape
+        video_feat = F.avg_pool2d(video_feat.view(-1, h, w), kernel_size=h)
         video_feat = video_feat.reshape(b, c, t).permute(0, 2, 1)
         video_feat = self.video_projection(video_feat)
         video_feat = self.video_temporal_pool(video_feat.permute(0, 2, 1)).squeeze(-1)
