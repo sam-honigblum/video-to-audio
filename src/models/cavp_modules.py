@@ -8,15 +8,14 @@ import torch.nn.functional as F
 import torch.utils.checkpoint as cp
 from torch.nn.modules.utils import _ntuple, _triple
 
-from torchlibrosa.stft import Spectrogram, LogmelFilterBank
+from torchlibrosa.stft import Spectrogram,  LogmelFilterBank
 from torchlibrosa.augmentation import SpecAugmentation
 
-from mmcv.cnn import ConvModule, NonLocal3d, build_activation_layer, kaiming_init
-from mmcv.utils import print_log
+from mmcv.cnn import ConvModule, NonLocal3d, build_activation_layer
 from mmengine.logging import MMLogger
 from mmengine.model import BaseModule, Sequential
 from mmengine.model.weight_init import constant_init, kaiming_init
-from mmengine.runner import _load_checkpoint, load_checkpoint
+from mmengine.runner import load_checkpoint
 from mmengine.utils.dl_utils.parrots_wrapper import _BatchNorm
 
 """
@@ -163,7 +162,7 @@ class Cnn14(nn.Module):
         lat_x = lat_x.transpose(1, 2)
         lat_x = F.relu_(self.fc1(lat_x))
         x = F.relu_(self.fc1(lat_x))
-        output = self.final_project(x)
+        output = self.fc_audioset(x)
         return output
 
 
@@ -978,7 +977,7 @@ class ResNet3d(BaseModule):
                 debugging information.
         """
 
-        state_dict_r2d = _load_checkpoint(self.pretrained, map_location="cpu")
+        state_dict_r2d = load_checkpoint(self.pretrained, map_location="cpu")
         if "state_dict" in state_dict_r2d:
             state_dict_r2d = state_dict_r2d["state_dict"]
 
@@ -1302,7 +1301,7 @@ class ResNet3dPathway(ResNet3d):
                 debugging information.
         """
 
-        state_dict_r2d = _load_checkpoint(self.pretrained, map_location="cpu")
+        state_dict_r2d = load_checkpoint(self.pretrained, map_location="cpu")
         if "state_dict" in state_dict_r2d:
             state_dict_r2d = state_dict_r2d["state_dict"]
 
@@ -1499,6 +1498,7 @@ class ResNet3dSlowOnly(ResNet3dPathway):
 
     def __init__(
         self,
+        lateral=False,
         conv1_kernel: Sequence[int] = (1, 7, 7),
         conv1_stride_t: int = 1,
         pool1_stride_t: int = 1,

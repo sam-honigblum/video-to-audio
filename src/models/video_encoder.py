@@ -12,13 +12,13 @@ from torch import nn
 import torch.nn.functional as F
 import math
 
-from cavp_modules import Cnn14, ResNet3dSlowOnly
+from .cavp_modules import Cnn14, ResNet3dSlowOnly
 
 class CAVP(nn.Module):
     def __init__(self, feat_dim=512, temperature=0.07):
         super().__init__()
 
-        self.video_encoder = ResNet3dSlowOnly(depth=50)
+        self.video_encoder = ResNet3dSlowOnly(depth=50, pretrained=None)
         self.video_projection = nn.Linear(2048, feat_dim)
         self.video_temporal_pool = nn.MaxPool1d(kernel_size=16)
 
@@ -29,12 +29,13 @@ class CAVP(nn.Module):
 
     def forward(self, video, spectrogram):
         """
-        video: (B, 3, T, H, W)
+        video: (B, C, T, H, W)
         spectrogram: (B, 1, mel_num, T)
         """
         # video encode
         video_feat = self.video_encoder(video)
         b, c, t, h, w = video_feat.shape
+        video_feat = F.avg_pool2d(video_feat.view(-1, h, w), kernel_size=h)
         video_feat = video_feat.reshape(b, c, t).permute(0, 2, 1)
         video_feat = self.video_projection(video_feat)
         video_feat = self.video_temporal_pool(video_feat.permute(0, 2, 1)).squeeze(-1)
@@ -43,7 +44,7 @@ class CAVP(nn.Module):
         # audio encode
         spectrogram = spectrogram.permute(0, 1, 3, 2) # (B, 1, T, mel_num)
         spectrogram_feat = self.audio_encoder(spectrogram) #(B, T, C)
-        spectrogram_feat = self.audio_temporal_pool(spectrogram_feat.permute(0, 2, 1))
+        spectrogram_feat = self.audio_temporal_pool(spectrogram_feat.permute(0, 2, 1)).squeeze(-1)
         spectrogram_norm = F.normalize(spectrogram_feat, dim=-1)
 
         return video_norm, spectrogram_norm
@@ -52,7 +53,7 @@ class _CLIPStyleLoss(nn.Module):
     def __init__(self, shared_logit_scale: nn.Parameter):
         super().__init__()
         self.logit_scale = shared_logit_scale
-        
+
 
     def forward(
         self,

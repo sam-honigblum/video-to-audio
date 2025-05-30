@@ -1,127 +1,121 @@
 # =============================================================================
-# File: src/train_CAVP.py
-# Purpose: Contrastive Audio-Visual Pre‑training (CAVP) stage
+# File: src/models/video_encoder.py
+# Role: Frozen CAVP backbone that maps RGB video to 40×512 tokens
 # -----------------------------------------------------------------------------
-# ‣ Trains the CAVP model (audio + video encoders with shared logit_scale)
-#   to align 4‑second clips via semantic (extra‑video) and temporal (intra‑video)
-#   contrastive losses, as in Diff‑Foley (Eq. 1 & 2).
-# ‣ Writes two frozen checkpoints:  audio_encoder.pth  and  video_encoder.pth
-#   to be reused (frozen) in Stage‑2 LDM training.
+# • Wraps a pretrained 3D-ViT (TimeSformer) fine-tuned with CAVP loss.
+# • Adds positional encodings so cross-attention lines up temporally.
+# • forward(video) → (B, 40, 512) for UNet cross-attention.
 # =============================================================================
 
-from __future__ import annotations
-
-import argparse
-from pathlib import Path
-
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from omegaconf import OmegaConf
-from tqdm import tqdm
+from torch import nn
+import torch.nn.functional as F
+import math
 
-from utils.data_loader import make_dataloader            # returns dict with keys: video, mel, video_id
-from models.video_encoder import CAVP, CAVP_Loss         # model & loss share logit_scale
+from .cavp_modules import Cnn14, ResNet3dSlowOnly
 
+class CAVP(nn.Module):
+    def __init__(self, feat_dim=512, temperature=0.07):
+        super().__init__()
 
-# ────────────────────────────────────────────────────────────────────────────
-#  Training procedure
-# ────────────────────────────────────────────────────────────────────────────
+        self.video_encoder = ResNet3dSlowOnly(depth=50, pretrained=None)
+        self.video_projection = nn.Linear(2048, feat_dim)
+        self.video_temporal_pool = nn.MaxPool1d(kernel_size=16)
 
-def train_cavp(cfg: OmegaConf) -> None:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.audio_encoder = Cnn14(feat_dim=feat_dim)
+        self.audio_temporal_pool = nn.MaxPool1d(kernel_size=16)
 
-    # 1 ─ Data ----------------------------------------------------------------
-    loader = make_dataloader(cfg.data, split="train")  # should yield mel‑spectrograms, not raw wav
+        self.logit_scale = nn.Parameter(torch.log(torch.tensor(1.0 / temperature)))
 
-    # 2 ─ Model + Loss --------------------------------------------------------
-    model = CAVP(feat_dim=cfg.model.feat_dim,
-                 temperature=cfg.loss.temperature).to(device)
-    criterion = CAVP_Loss(model.logit_scale,
-                          lambda_=cfg.loss.lambda_).to(device)
+    def forward(self, video, spectrogram):
+        """
+        video: (B, C, T, H, W)
+        spectrogram: (B, 1, mel_num, T)
+        """
+        # video encode
+        video_feat = self.video_encoder(video)
+        b, c, t, h, w = video_feat.shape
+        video_feat = F.avg_pool2d(video_feat.view(-1, h, w), kernel_size=h)
+        video_feat = video_feat.reshape(b, c, t).permute(0, 2, 1)
+        video_feat = self.video_projection(video_feat)
+        video_feat = self.video_temporal_pool(video_feat.permute(0, 2, 1)).squeeze(-1)
+        video_norm = F.normalize(video_feat, dim=-1)
 
-    # 3 ─ Optimiser -----------------------------------------------------------
-    optimizer = optim.AdamW(
-        model.parameters(),   # criterion has no standalone params
-        lr=cfg.optim.lr,
-        betas=(0.9, 0.98),
-        weight_decay=cfg.optim.weight_decay,
-    )
+        # audio encode
+        spectrogram = spectrogram.permute(0, 1, 3, 2) # (B, 1, T, mel_num)
+        spectrogram_feat = self.audio_encoder(spectrogram) #(B, T, C)
+        spectrogram_feat = self.audio_temporal_pool(spectrogram_feat.permute(0, 2, 1)).squeeze(-1)
+        spectrogram_norm = F.normalize(spectrogram_feat, dim=-1)
 
-    # 4 ─ Checkpoint resume ---------------------------------------------------
-    ckpt_dir = Path(cfg.training.ckpt_dir)
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
-    latest = ckpt_dir / "last.pt"
-    start_step = 0
-    if latest.exists():
-        state = torch.load(latest, map_location="cpu")
-        model.load_state_dict(state["model"], strict=False)
-        criterion.load_state_dict(state["loss"])
-        optimizer.load_state_dict(state["optim"])
-        start_step = state["step"] + 1
-        print(f"▶ Resumed CAVP from step {start_step}.")
+        return video_norm, spectrogram_norm
 
-    # 5 ─ Training loop -------------------------------------------------------
-    model.train()
-    global_step = start_step
-    total_steps = cfg.training.total_steps
-
-    pbar = tqdm(total=total_steps, initial=global_step, unit="step")
-    while global_step < total_steps:
-        for batch in loader:
-            video = batch["video"].to(device)          # (B, 3, F, H, W)
-            mel   = batch["mel"].to(device)            # (B, 1, n_mels, T)
-            vid_id = batch["video_id"].to(device)      # (B,)
-
-            # Forward ------------------------------------------------------
-            video_feats, audio_feats = model(video, mel)      # order matches model.forward
-            loss = criterion(audio_feats, video_feats, vid_id)
-
-            # Back‑prop ----------------------------------------------------
-            optimizer.zero_grad()
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), cfg.training.clip_grad_norm)
-            optimizer.step()
-
-            # Logging & checkpoint ---------------------------------------
-            pbar.set_description(f"loss={loss.item():.4f}")
-            pbar.update(1)
-
-            if global_step % cfg.training.ckpt_every == 0:
-                ckpt = {
-                    "model": model.state_dict(),
-                    "loss": criterion.state_dict(),
-                    "optim": optimizer.state_dict(),
-                    "step": global_step,
-                }
-                torch.save(ckpt, latest)
-                torch.save(ckpt, ckpt_dir / f"step{global_step}.pt")
-
-            global_step += 1
-            if global_step >= total_steps:
-                break
-
-    # 6 ─ Save final encoders -------------------------------------------------
-    torch.save(model.audio_encoder.state_dict(), ckpt_dir / "audio_encoder.pth")
-    torch.save(model.video_encoder.state_dict(), ckpt_dir / "video_encoder.pth")
-    print("✅ CAVP training completed – encoders saved.")
+class _CLIPStyleLoss(nn.Module):
+    def __init__(self, shared_logit_scale: nn.Parameter):
+        super().__init__()
+        self.logit_scale = shared_logit_scale
 
 
-# ────────────────────────────────────────────────────────────────────────────
-#  CLI helper
-# ────────────────────────────────────────────────────────────────────────────
+    def forward(
+        self,
+        audio: torch.Tensor,             # (B, D)
+        video: torch.Tensor,             # (B, D)
+    ) -> torch.Tensor:
+        B, D = audio.shape
+        # 1. l2-normalise
+        a = F.normalize(audio, dim=-1)
+        v = F.normalize(video, dim=-1)
 
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Train CAVP encoders (Stage‑1)")
-    p.add_argument("--config", type=str, required=True, help="Path to YAML cfg")
-    return p.parse_args()
+        a_logits = self.logit_scale.exp() * a @ v.T
+        v_logits = self.logi_scale.exp() * v @ a.T
 
+        labels = torch.arange(B, device=audio.device)
 
-def main() -> None:
-    args = parse_args()
-    cfg = OmegaConf.load(args.config)
-    train_cavp(cfg)
+        loss_a2v = F.cross_entropy(a_logits, labels)
+        loss_v2a = F.cross_entropy(v_logits, labels)
 
+        return 0.5 * (loss_a2v + loss_v2a)
 
-if __name__ == "__main__":
-    main()
+class CAVP_Loss(nn.Module):
+    """
+    Implements   L_total = L_extra + λ · L_intra
+    where
+        L_extra  - semantic contrast  (different videos)
+        L_intra  - temporal contrast  (other segments of same video)
+    """
+    def __init__(self, shared_logit_scale: nn.Parameter, lambda_: float = 1.0):
+        super().__init__()
+        self.lambda_   = lambda_
+        self.clip_loss = _CLIPStyleLoss(shared_logit_scale)
+
+    # ======= public entry =================================================
+    def forward(
+        self,
+        audio_feats: torch.Tensor,       # (B, D)
+        video_feats: torch.Tensor,       # (B, D)
+        vid_ids: torch.Tensor            # (B,)  int identifier per *source video*
+    ) -> torch.Tensor:
+        extra = self.extra_loss(audio_feats, video_feats, vid_ids)
+        intra = self.intra_loss(audio_feats, video_feats, vid_ids)
+        return extra + self.lambda_ * intra
+
+    # ======= semantic term  (different videos) ============================
+    def extra_loss(
+        self,
+        audio_feats: torch.Tensor,
+        video_feats: torch.Tensor,
+        vid_ids: torch.Tensor
+    ) -> torch.Tensor:
+        # positives are (i,j) where vid_i ≠ vid_j
+        pos_mask = vid_ids.unsqueeze(0) != vid_ids.unsqueeze(1)   # (B,B)
+        return self.clip_loss(audio_feats, video_feats, pos_mask)
+
+    # ======= temporal term  (same video, different segment) ===============
+    def intra_loss(
+        self,
+        audio_feats: torch.Tensor,
+        video_feats: torch.Tensor,
+        vid_ids: torch.Tensor
+    ) -> torch.Tensor:
+        eye = torch.eye(len(vid_ids), dtype=torch.bool, device=vid_ids.device)
+        pos_mask = (vid_ids.unsqueeze(0) == vid_ids.unsqueeze(1)) & ~eye
+        return self.clip_loss(audio_feats, video_feats, pos_mask)
