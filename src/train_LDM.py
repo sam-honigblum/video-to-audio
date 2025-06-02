@@ -32,10 +32,8 @@ from models.sampler import DPMSolverSampler
 # ────────────────────────────────────────────────────────────────────────────
 #  UNet factory (diffusers) – kept here so train.py is self‑contained
 # ────────────────────────────────────────────────────────────────────────────
-try:
-    from diffusers import UNet2DConditionModel
-except ImportError:
-    raise RuntimeError("diffusers missing →  add diffusers>=0.25 to requirements.txt")
+
+from diffusers import UNet2DConditionModel
 
 
 def build_unet(in_channels: int, model_channels: int = 320) -> nn.Module:
@@ -119,7 +117,7 @@ def train_loop(cfg: OmegaConf) -> None:
     # 3 ─ Optimiser & EMA
     optimiser = optim.AdamW(ldm.unet.parameters(), lr=cfg.optim.lr, weight_decay=1e-2)
     ema = EMA(ldm.unet, decay=cfg.optim.ema_decay)
-    """"
+
     # 4 ─ Optionally resume
     start_step = 0
     ckpt_dir = Path(cfg.training.ckpt_dir)
@@ -132,7 +130,7 @@ def train_loop(cfg: OmegaConf) -> None:
         ema.shadow = state["ema"]
         start_step = state["step"] + 1
         print(f"▶ Resumed from step {start_step}.")
-    """"
+
     # 5 ─ Training
     global_step = start_step
     ldm.train()

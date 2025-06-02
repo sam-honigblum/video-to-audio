@@ -1,10 +1,7 @@
 # =============================================================================
-# File: src/models/video_encoder.py
+# File: src/models/video_encoder.py (patched)
 # Role: Frozen CAVP backbone that maps RGB video to 40×512 tokens
-# -----------------------------------------------------------------------------
-# • Wraps a pretrained 3D-ViT (TimeSformer) fine-tuned with CAVP loss.
-# • Adds positional encodings so cross-attention lines up temporally.
-# • forward(video) → (B, 40, 512) for UNet cross-attention.
+#         + Corrected CAVP loss implementation (semantic + temporal)
 # =============================================================================
 
 import torch
@@ -14,111 +11,138 @@ import math
 
 from .cavp_modules import Cnn14, ResNet3dSlowOnly
 
+# -----------------------------------------------------------------------------
+# Encoders
+# -----------------------------------------------------------------------------
 class CAVP(nn.Module):
-    def __init__(self, feat_dim=512, temperature=0.07):
+    """Video ⇄ Audio encoders with fixed projections used during diffusion."""
+
+    def __init__(self, feat_dim: int = 512, temperature: float = 0.07):
         super().__init__()
 
+        # ---------------- video branch ----------------
         self.video_encoder = ResNet3dSlowOnly(depth=50, pretrained=None)
         self.video_projection = nn.Linear(2048, feat_dim)
         self.video_temporal_pool = nn.MaxPool1d(kernel_size=16)
 
+        # ---------------- audio branch ----------------
         self.audio_encoder = Cnn14(feat_dim=feat_dim)
         self.audio_temporal_pool = nn.MaxPool1d(kernel_size=16)
 
+        # shared learnable temperature (τ⁻¹)
         self.logit_scale = nn.Parameter(torch.log(torch.tensor(1.0 / temperature)))
 
-    def forward(self, video, spectrogram):
+    # ---------------------------------------------------------------------
+    def forward(self, video: torch.Tensor, spectrogram: torch.Tensor):
+        """Returns l2‑normalised features ready for the CAVP loss.
+
+        Parameters
+        ----------
+        video : (B, C, T, H, W)
+        spectrogram : (B, 1, mel_bins, T)
         """
-        video: (B, C, T, H, W)
-        spectrogram: (B, 1, mel_num, T)
-        """
-        # video encode
-        video_feat = self.video_encoder(video)
-        b, c, t, h, w = video_feat.shape
-        video_feat = F.avg_pool2d(video_feat.view(-1, h, w), kernel_size=h)
-        video_feat = video_feat.reshape(b, c, t).permute(0, 2, 1)
-        video_feat = self.video_projection(video_feat)
-        video_feat = self.video_temporal_pool(video_feat.permute(0, 2, 1)).squeeze(-1)
-        video_norm = F.normalize(video_feat, dim=-1)
+        # -------- video --------
+        v = self.video_encoder(video)            # (B, 2048, T, H', W')
+        b, c, t, h, w = v.shape
+        v = v.view(b * t, c, h, w)
+        v = F.avg_pool2d(v, kernel_size=h)       # (B·T, 2048, 1, 1)
+        v = v.view(b, t, c)                      # (B, T, 2048)
+        v = self.video_projection(v)             # (B, T, D)
+        v = self.video_temporal_pool(v.permute(0, 2, 1)).squeeze(-1)  # (B, D)
+        v = F.normalize(v, dim=-1)
 
-        # audio encode
-        spectrogram = spectrogram.permute(0, 1, 3, 2) # (B, 1, T, mel_num)
-        spectrogram_feat = self.audio_encoder(spectrogram) #(B, T, C)
-        spectrogram_feat = self.audio_temporal_pool(spectrogram_feat.permute(0, 2, 1)).squeeze(-1)
-        spectrogram_norm = F.normalize(spectrogram_feat, dim=-1)
+        # -------- audio --------
+        s = spectrogram.permute(0, 1, 3, 2)      # → (B, 1, T, mel_bins)
+        s = self.audio_encoder(s)                # (B, T, D)
+        s = self.audio_temporal_pool(s.permute(0, 2, 1)).squeeze(-1)  # (B, D)
+        s = F.normalize(s, dim=-1)
 
-        return video_norm, spectrogram_norm
+        return v, s
 
+# -----------------------------------------------------------------------------
+# Contrastive losses
+# -----------------------------------------------------------------------------
 class _CLIPStyleLoss(nn.Module):
+    """OpenCLIP‑style InfoNCE with a *single* positive index per row.
+
+    Parameters
+    ----------
+    shared_logit_scale : nn.Parameter
+        The temperature parameter (log space) shared across the whole model.
+    """
+
     def __init__(self, shared_logit_scale: nn.Parameter):
         super().__init__()
         self.logit_scale = shared_logit_scale
 
+    # ------------------------------------------------------------------
+    def forward(self, audio: torch.Tensor, video: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        """Compute symmetric KL‑divergence as in CLIP.
 
-    def forward(
-        self,
-        audio: torch.Tensor,             # (B, D)
-        video: torch.Tensor,             # (B, D)
-        positive_mask: torch.Tensor,      # (B, B)  True ⇒ (i,j) is a positive
-    ) -> torch.Tensor:
-        B, D = audio.shape
-        # 1. l2-normalise
+        audio, video : (B, D) – l2‑normalised feature vectors
+        labels       : (B,)   – index of the *positive* video for each audio row
+        """
         a = F.normalize(audio, dim=-1)
         v = F.normalize(video, dim=-1)
 
-        # 2. similarity · τ⁻¹
-        logits = (self.logit_scale.exp().clamp(max=100) *
-                   a @ v.T)                       # (B, B)
+        logits = self.logit_scale.exp().clamp(max=100) * (a @ v.T)  # (B, B)
 
-        # 3. mask out *unwanted* positives by setting them to −∞
-        pos_index_row = positive_mask.argmax(dim=1)   # (B,)
-        pos_index_col = positive_mask.argmax(dim=0)   # (B,)
-
-        loss_a2v = F.cross_entropy(logits,     pos_index_row)
-        loss_v2a = F.cross_entropy(logits.T,   pos_index_col)
+        loss_a2v = F.cross_entropy(logits, labels)
+        loss_v2a = F.cross_entropy(logits.T, labels)
         return 0.5 * (loss_a2v + loss_v2a)
 
+# -----------------------------------------------------------------------------
 class CAVP_Loss(nn.Module):
+    """Combined semantic + temporal loss from Diff‑Foley.
+
+    L_total = L_semantic + λ · L_temporal
     """
-    Implements   L_total = L_extra + λ · L_intra
-    where
-        L_extra  - semantic contrast  (different videos)
-        L_intra  - temporal contrast  (other segments of same video)
-    """
+
     def __init__(self, shared_logit_scale: nn.Parameter, lambda_: float = 1.0):
         super().__init__()
-        self.lambda_   = lambda_
+        self.lambda_ = lambda_
         self.clip_loss = _CLIPStyleLoss(shared_logit_scale)
 
-    # ======= public entry =================================================
-    def forward(
-        self,
-        audio_feats: torch.Tensor,       # (B, D)
-        video_feats: torch.Tensor,       # (B, D)
-        vid_ids: torch.Tensor            # (B,)  int identifier per *source video*
-    ) -> torch.Tensor:
-        extra = self.extra_loss(audio_feats, video_feats, vid_ids)
-        intra = self.intra_loss(audio_feats, video_feats, vid_ids)
-        return extra + self.lambda_ * intra
+    # ------------------------------------------------------------------
+    def forward(self, audio_feats: torch.Tensor, video_feats: torch.Tensor, vid_ids: torch.Tensor) -> torch.Tensor:
+        """Return total loss.
 
-    # ======= semantic term  (different videos) ============================
-    def extra_loss(
-        self,
-        audio_feats: torch.Tensor,
-        video_feats: torch.Tensor,
-        vid_ids: torch.Tensor
-    ) -> torch.Tensor:
-        # positives are (i,j) where vid_i ≠ vid_j
-        pos_mask = vid_ids.unsqueeze(0) != vid_ids.unsqueeze(1)   # (B,B)
-        return self.clip_loss(audio_feats, video_feats, pos_mask)
+        Parameters
+        ----------
+        audio_feats, video_feats : (B, D)
+        vid_ids                 : (B,) – integer source‑video identifiers
+        """
+        semantic = self.semantic_loss(audio_feats, video_feats)
+        temporal = self.temporal_loss(audio_feats, video_feats, vid_ids)
+        return semantic + self.lambda_ * temporal
 
-    # ======= temporal term  (same video, different segment) ===============
-    def intra_loss(
-        self,
-        audio_feats: torch.Tensor,
-        video_feats: torch.Tensor,
-        vid_ids: torch.Tensor
-    ) -> torch.Tensor:
-        eye = torch.eye(len(vid_ids), dtype=torch.bool, device=vid_ids.device)
-        pos_mask = (vid_ids.unsqueeze(0) == vid_ids.unsqueeze(1)) & ~eye
-        return self.clip_loss(audio_feats, video_feats, pos_mask)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _make_temporal_labels(vid_ids: torch.Tensor) -> torch.Tensor:
+        """Assign each sample a positive index that is *another* clip from the same video.
+
+        If a video appears only once in the batch, fall back to the diagonal.
+        """
+        device = vid_ids.device
+        B = len(vid_ids)
+        labels = torch.arange(B, device=device)
+        # build an index list for each unique video id
+        unique_ids = vid_ids.unique()
+        for uid in unique_ids:
+            idx = (vid_ids == uid).nonzero(as_tuple=False).flatten()
+            if idx.numel() > 1:
+                rolled = torch.roll(idx, shifts=-1)
+                labels[idx] = rolled
+        return labels
+
+    # ------------------------------------------------------------------
+    def semantic_loss(self, audio_feats: torch.Tensor, video_feats: torch.Tensor) -> torch.Tensor:
+        """Diagonal aligns matching audio–video clips (standard CLIP)."""
+        labels = torch.arange(audio_feats.size(0), device=audio_feats.device)
+        return self.clip_loss(audio_feats, video_feats, labels)
+
+    # ------------------------------------------------------------------
+    def temporal_loss(self, audio_feats: torch.Tensor, video_feats: torch.Tensor, vid_ids: torch.Tensor) -> torch.Tensor:
+        """Align *different* timestamps from the same source video."""
+        labels = self._make_temporal_labels(vid_ids)
+        return self.clip_loss(audio_feats, video_feats, labels)
