@@ -27,7 +27,7 @@ from utils.data_loader import make_dataloader
 from models.latent_diffusion import LatentDiffusion
 from models.video_encoder import CAVP
 from models.audio_autoencoder import EncodecWrapper
-from models.sampler import DDIMSampler
+from models.sampler import DPMSolverSampler
 
 # ────────────────────────────────────────────────────────────────────────────
 #  UNet factory (diffusers) – kept here so train.py is self‑contained
