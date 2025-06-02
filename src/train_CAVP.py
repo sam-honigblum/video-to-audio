@@ -82,8 +82,8 @@ def train_cavp(cfg: OmegaConf) -> None:
             vid_id = data["id"].to(device)      # (B,)
 
             # Forward ------------------------------------------------------
-            video_feats, audio_feats = model(video, mel)      # order matches model.forward
-            loss = criterion(audio_feats, video_feats, vid_id)
+            video_feats, video_mean_feats, audio_feats, audio_mean_feats, logit_scale = model(video, mel)      # order matches model.forward
+            loss = criterion(video_feats, video_mean_feats, audio_feats, audio_mean_feats, logit_scale)
 
             # Back‑prop ----------------------------------------------------
             optimizer.zero_grad()
