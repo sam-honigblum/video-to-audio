@@ -98,6 +98,13 @@ class VidSpectroDataset (Dataset):
                 seen.add(name)
         return res
 
+    @staticmethod
+    def collate_fn(batch):
+        return {
+            'audio': torch.stack([x['audio'] for x in batch]),
+            'video': torch.stack([x['video'] for x in batch])
+        }
+
     def __len__(self):
         return len(self.ids)
 
@@ -107,8 +114,7 @@ class VidSpectroDataset (Dataset):
         vid, _ = self.gen_vid(name)
         return {
           "audio": spec,
-          "video": vid,
-          "id": torch.tensor([idx])
+          "video": vid
         },
         name
 

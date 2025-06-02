@@ -39,13 +39,12 @@ def train_cavp(cfg: OmegaConf) -> None:
 
     # # pytorch dataloader support
     dataset = VidSpectroDataset(cfg.data.path, device=device)
-    loader = DataLoader(dataset, batch_size=cfg.data.batch_size, num_workers=cfg.data.num_workers, shuffle=True)
+    loader = DataLoader(dataset, batch_size=cfg.data.batch_size, num_workers=cfg.data.num_workers, shuffle=True, collate_fn=VidSpectroDataset.collate_fn)
 
     # 2 ─ Model + Loss --------------------------------------------------------
     model = CAVP(feat_dim=cfg.model.feat_dim,
                  temperature=cfg.loss.temperature).to(device)
-    criterion = CAVP_Loss(model.logit_scale,
-                          lambda_=cfg.loss.lambda_).to(device)
+    criterion = CAVP_Loss(clip_num=cfg.loss.clip_num, lambda_=cfg.loss.lambda_).to(device)
 
     # 3 ─ Optimiser -----------------------------------------------------------
     optimizer = optim.AdamW(
@@ -79,11 +78,10 @@ def train_cavp(cfg: OmegaConf) -> None:
             data = data[0]
             video = data["video"].to(device)          # (B, 3, F, H, W)
             mel   = data["audio"].to(device)            # (B, 1, n_mels, T)
-            vid_id = data["id"].to(device)      # (B,)
 
             # Forward ------------------------------------------------------
-            video_feats, audio_feats = model(video, mel)      # order matches model.forward
-            loss = criterion(audio_feats, video_feats, vid_id)
+            video_feats, video_mean_feats, audio_feats, audio_mean_feats, logit_scale = model(video, mel)      # order matches model.forward
+            loss = criterion(video_feats, video_mean_feats, audio_feats, audio_mean_feats, logit_scale)
 
             # Back‑prop ----------------------------------------------------
             optimizer.zero_grad()
