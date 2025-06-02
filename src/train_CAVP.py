@@ -39,7 +39,7 @@ def train_cavp(cfg: OmegaConf) -> None:
 
     # # pytorch dataloader support
     dataset = VidSpectroDataset(cfg.data.path, device=device)
-    loader = DataLoader(dataset, batch_size=cfg.data.batch_size, num_workers=cfg.data.num_workers, shuffle=True)
+    loader = DataLoader(dataset, batch_size=cfg.data.batch_size, num_workers=cfg.data.num_workers, shuffle=True, collate_fn=VidSpectroDataset.collate_fn)
 
     # 2 ─ Model + Loss --------------------------------------------------------
     model = CAVP(feat_dim=cfg.model.feat_dim,
@@ -78,7 +78,6 @@ def train_cavp(cfg: OmegaConf) -> None:
             data = data[0]
             video = data["video"].to(device)          # (B, 3, F, H, W)
             mel   = data["audio"].to(device)            # (B, 1, n_mels, T)
-            vid_id = data["id"].to(device)      # (B,)
 
             # Forward ------------------------------------------------------
             video_feats, video_mean_feats, audio_feats, audio_mean_feats, logit_scale = model(video, mel)      # order matches model.forward
