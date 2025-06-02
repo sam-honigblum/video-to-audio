@@ -56,77 +56,114 @@ class _CLIPStyleLoss(nn.Module):
 
     def forward(
         self,
-        audio: torch.Tensor,             # (B, D)
-        video: torch.Tensor,             # (B, D)
-        positive_mask: torch.Tensor,      # (B, B)  True ⇒ (i,j) is a positive
+        audio: torch.Tensor,            # (B, D)
+        video: torch.Tensor,            # (B, D)
+        positive_mask: torch.Tensor,     # (B, B): True ⇒ (i, j) is a positive pair
     ) -> torch.Tensor:
         B, D = audio.shape
-        # 1. l2-normalise
-        a = F.normalize(audio, dim=-1)
-        v = F.normalize(video, dim=-1)
 
-        # 2. similarity · τ⁻¹
-        logits = (self.logit_scale.exp().clamp(max=100) *
-                   a @ v.T)                       # (B, B)
+        # 1. L2‐normalize embeddings (just in case)
+        a = F.normalize(audio, dim=-1)   # (B, D)
+        v = F.normalize(video, dim=-1)   # (B, D)
 
-        # 3. mask out *unwanted* positives by setting them to −∞
-        # Convert to float and ensure we have at least one positive per row
-        pos_mask_float = positive_mask.float()
-        if not pos_mask_float.any(dim=1).all():
-            # If any row has no positives, use self as positive
-            pos_mask_float = pos_mask_float.clone()
-            pos_mask_float[~pos_mask_float.any(dim=1)] = torch.eye(B, device=pos_mask_float.device)[~pos_mask_float.any(dim=1)]
-        
-        # Get indices of positives
-        pos_index_row = pos_mask_float.argmax(dim=1)   # (B,)
-        pos_index_col = pos_mask_float.argmax(dim=0)   # (B,)
+        # 2. Compute scaled cosine similarities: (B, B) matrix
+        #    logit_scale.exp() is 1/τ
+        logits = (self.logit_scale.exp().clamp(max=100) * (a @ v.T))  # (B, B)
 
-        # Compute loss in both directions
-        loss_a2v = F.cross_entropy(logits, pos_index_row)
-        loss_v2a = F.cross_entropy(logits.T, pos_index_col)
+        # 3. For cross‐entropy, we need exactly one positive index per row and per column.
+        #    We assume positive_mask has exactly one True in each row and each column.
+        pos_index_row = positive_mask.float().argmax(dim=1)  # (B,) selects column index for each audio row
+        pos_index_col = positive_mask.float().argmax(dim=0)  # (B,) selects row index for each video column
+
+        loss_a2v = F.cross_entropy(logits,     pos_index_row)
+        loss_v2a = F.cross_entropy(logits.T,   pos_index_col)
         return 0.5 * (loss_a2v + loss_v2a)
+
 
 class CAVP_Loss(nn.Module):
     """
     Implements   L_total = L_extra + λ · L_intra
     where
-        L_extra  - semantic contrast  (different videos)
-        L_intra  - temporal contrast  (other segments of same video)
+      • L_extra  - semantic contrast  (pull together each audio/video pair,
+                    push apart all other pairs)
+      • L_intra  - temporal contrast  (pull each segment’s audio to its “paired”
+                    video from another time‐slice of the same video, push apart
+                    all other pairs)
     """
     def __init__(self, shared_logit_scale: nn.Parameter, lambda_: float = 1.0):
         super().__init__()
         self.lambda_   = lambda_
         self.clip_loss = _CLIPStyleLoss(shared_logit_scale)
 
-    # ======= public entry =================================================
     def forward(
         self,
-        audio_feats: torch.Tensor,       # (B, D)
-        video_feats: torch.Tensor,       # (B, D)
-        vid_ids: torch.Tensor            # (B,)  int identifier per *source video*
+        audio_feats: torch.Tensor,    # (B, D)
+        video_feats: torch.Tensor,    # (B, D)
+        vid_ids: torch.Tensor         # (B,), int identifier per *source video*
     ) -> torch.Tensor:
         extra = self.extra_loss(audio_feats, video_feats, vid_ids)
         intra = self.intra_loss(audio_feats, video_feats, vid_ids)
         return extra + self.lambda_ * intra
 
-    # ======= semantic term  (different videos) ============================
     def extra_loss(
         self,
-        audio_feats: torch.Tensor,
-        video_feats: torch.Tensor,
-        vid_ids: torch.Tensor
+        audio_feats: torch.Tensor,    # (B, D)
+        video_feats: torch.Tensor,    # (B, D)
+        vid_ids: torch.Tensor         # (B,)
     ) -> torch.Tensor:
-        # positives are (i,j) where vid_i ≠ vid_j
-        pos_mask = vid_ids.unsqueeze(0) != vid_ids.unsqueeze(1)   # (B,B)
+        """
+        Semantic contrast: pull together (audio_i, video_i) only for the same segment i.
+        All other pairs in the batch are treated as negatives. This ensures
+        exactly one positive per row/column (the diagonal).
+        """
+        B = audio_feats.size(0)
+        device = audio_feats.device
+
+        # Identity‐matrix mask: True only on (i, i)
+        pos_mask = torch.eye(B, dtype=torch.bool, device=device)  # (B, B)
         return self.clip_loss(audio_feats, video_feats, pos_mask)
 
-    # ======= temporal term  (same video, different segment) ===============
     def intra_loss(
         self,
-        audio_feats: torch.Tensor,
-        video_feats: torch.Tensor,
-        vid_ids: torch.Tensor
+        audio_feats: torch.Tensor,    # (B, D)
+        video_feats: torch.Tensor,    # (B, D)
+        vid_ids: torch.Tensor         # (B,)
     ) -> torch.Tensor:
-        eye = torch.eye(len(vid_ids), dtype=torch.bool, device=vid_ids.device)
-        pos_mask = (vid_ids.unsqueeze(0) == vid_ids.unsqueeze(1)) & ~eye
+        """
+        Temporal contrast: for each index i, we select exactly one other index j
+        such that vid_ids[j] == vid_ids[i] and j != i. We form a directed cycle
+        among all indices belonging to the same video. This guarantees exactly one
+        True per row and one True per column of pos_mask.
+
+        If a particular video ID appears only once in the batch, it contributes no
+        positive to intra_loss (we simply skip it).
+        """
+        B = audio_feats.size(0)
+        device = audio_feats.device
+
+        # Initialize all‐False mask
+        pos_mask = torch.zeros((B, B), dtype=torch.bool, device=device)
+
+        # Find unique video IDs in the batch
+        unique_vids = torch.unique(vid_ids)
+
+        for vid in unique_vids:
+            # Indices of all segments that come from the same video 'vid'
+            idxs = (vid_ids == vid).nonzero(as_tuple=True)[0]  # shape (N_vid,)
+            if idxs.numel() < 2:
+                # No “other segment” to pair with ⇒ skip
+                continue
+
+            # Build a directed cycle among these indices:
+            #   e.g. if idxs = [i0, i1, i2], then
+            #     pos_mask[i0, i1] = True
+            #     pos_mask[i1, i2] = True
+            #     pos_mask[i2, i0] = True
+            # That ensures exactly one True per row and per column for this group.
+            ridx = idxs.tolist()  # convert to Python list of ints
+            for k in range(len(ridx)):
+                i_idx = ridx[k]
+                j_idx = ridx[(k + 1) % len(ridx)]
+                pos_mask[i_idx, j_idx] = True
+
         return self.clip_loss(audio_feats, video_feats, pos_mask)
