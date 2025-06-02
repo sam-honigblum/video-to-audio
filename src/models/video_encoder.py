@@ -54,7 +54,6 @@ class _CLIPStyleLoss(nn.Module):
         super().__init__()
         self.logit_scale = shared_logit_scale
 
-
     def forward(
         self,
         audio: torch.Tensor,             # (B, D)
@@ -71,11 +70,20 @@ class _CLIPStyleLoss(nn.Module):
                    a @ v.T)                       # (B, B)
 
         # 3. mask out *unwanted* positives by setting them to −∞
-        pos_index_row = positive_mask.float().argmax(dim=1).squeeze(-1)   # (B,)
-        pos_index_col = positive_mask.float().argmax(dim=0).squeeze(-1)
+        # Convert to float and ensure we have at least one positive per row
+        pos_mask_float = positive_mask.float()
+        if not pos_mask_float.any(dim=1).all():
+            # If any row has no positives, use self as positive
+            pos_mask_float = pos_mask_float.clone()
+            pos_mask_float[~pos_mask_float.any(dim=1)] = torch.eye(B, device=pos_mask_float.device)[~pos_mask_float.any(dim=1)]
+        
+        # Get indices of positives
+        pos_index_row = pos_mask_float.argmax(dim=1)   # (B,)
+        pos_index_col = pos_mask_float.argmax(dim=0)   # (B,)
 
-        loss_a2v = F.cross_entropy(logits,     pos_index_row)
-        loss_v2a = F.cross_entropy(logits.T,   pos_index_col)
+        # Compute loss in both directions
+        loss_a2v = F.cross_entropy(logits, pos_index_row)
+        loss_v2a = F.cross_entropy(logits.T, pos_index_col)
         return 0.5 * (loss_a2v + loss_v2a)
 
 class CAVP_Loss(nn.Module):
