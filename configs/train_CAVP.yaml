@@ -6,6 +6,7 @@ data:
 model:
   feat_dim: 512
 loss:
+  clip_num: 2
   temperature: 0.07
   lambda_: 1.0
 optim:

@@ -62,10 +62,10 @@ class CAVP_Loss(nn.Module):
         L_extra  - semantic contrast  (different videos)
         L_intra  - temporal contrast  (other segments of same video)
     """
-    def __init__(self, lambda_: float = 1.0):
+    def __init__(self, clip_num: int = 2, lambda_: float = 1.0):
         super().__init__()
         self.lambda_   = lambda_
-        self.clip_num = 3
+        self.clip_num = clip_num
 
     def forward(
         self,
@@ -81,7 +81,7 @@ class CAVP_Loss(nn.Module):
 
         num_logits = logits_per_vid.shape[0]
         labels = torch.arange(num_logits, device=video_feats.device, dtype=torch.long)
-        extra_loss = (F.cross_entropy(logits_per_vid, labels) + F.cross_entropy(logits_per_aud, labels)) / 2
+        extra_loss = (F.cross_entropy(logits_per_vid, labels) + F.cross_entropy(logits_per_aud, labels)) / 2.0
 
         batches, dim = video_mean_feats.shape
         vid_intra_feats = video_mean_feats.reshape(-1, self.clip_num, dim)
@@ -90,12 +90,11 @@ class CAVP_Loss(nn.Module):
         intra_logits_per_vid = logit_scale * torch.matmul(vid_intra_feats, aud_intra_feats.permute(0, 2, 1))
         intra_logits_per_aud = logit_scale * torch.matmul(aud_intra_feats, vid_intra_feats.permute(0, 2, 1))
 
-        intra_batches, intra_num_logits = intra_logits_per_vid.shape
-
+        intra_batches, intra_num_logits, _ = intra_logits_per_vid.shape
         intra_logits_per_vid = intra_logits_per_vid.reshape(intra_batches * intra_num_logits, intra_num_logits)
         intra_logits_per_aud = intra_logits_per_aud.reshape(intra_batches * intra_num_logits, intra_num_logits)
 
-        intra_labels = torch.arange(intra_num_logits, device=video_mean_feats.device, dtype=torch.long).unsqueeze(0).repeat(batches, 1).flatten() # create labels for everything all batches
+        intra_labels = torch.arange(intra_num_logits, device=video_mean_feats.device, dtype=torch.long).unsqueeze(0).repeat(intra_batches, 1).flatten() # create labels for everything all batches
 
-        intra_loss = (F.cross_entropy(intra_logits_per_vid, intra_labels) + F.cross_entropy(intra_logits_per_aud, intra_labels)) / 2
+        intra_loss = (F.cross_entropy(intra_logits_per_vid, intra_labels) + F.cross_entropy(intra_logits_per_aud, intra_labels)) / 2.0
         return extra_loss + self.lambda_ * intra_loss
