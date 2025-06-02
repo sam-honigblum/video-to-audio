@@ -71,8 +71,8 @@ class _CLIPStyleLoss(nn.Module):
                    a @ v.T)                       # (B, B)
 
         # 3. mask out *unwanted* positives by setting them to −∞
-        pos_index_row = positive_mask.float().argmax(dim=1)   # (B,)
-        pos_index_col = positive_mask.float().argmax(dim=0)   # (B,)
+        pos_index_row = positive_mask.float().argmax(dim=1).squeeze(-1)   # (B,)
+        pos_index_col = positive_mask.float().argmax(dim=0).squeeze(-1)
 
         loss_a2v = F.cross_entropy(logits,     pos_index_row)
         loss_v2a = F.cross_entropy(logits.T,   pos_index_col)
