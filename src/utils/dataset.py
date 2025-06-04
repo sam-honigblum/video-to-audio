@@ -18,7 +18,8 @@ POWER         = 2.0           # power = 2 → power-spectrogram; 1 → amplitude
 
 TARGET_FPS   = 4        # keep it light; original is 30 fps
 TARGET_SIZE  = 224       # output H = W = 224
-FIXED_NUM_FRAMES = 20
+FIXED_NUM_FRAMES = 40
+TARGET_SAMPLES = 641
 
 mel_transform = torchaudio.transforms.MelSpectrogram(
 # mel_transform = torchlibrosa.stft.MelSpectrogram(
@@ -42,6 +43,16 @@ class VidSpectroDataset (Dataset):
         wav, sr = torchaudio.load(f"{self.data_path}/{name}.wav")  # (channels, time)
         if sr != SAMPLE_RATE:
             wav = torchaudio.functional.resample(wav, sr, SAMPLE_RATE)
+
+        # 3. Pad or trim to fixed length
+        if wav.shape[1] < TARGET_SAMPLES:
+            # Pad with zeros (adjust padding mode if needed)
+            pad_amount = TARGET_SAMPLES - wav.shape[1]
+            wav = torch.nn.functional.pad(wav, (0, pad_amount), mode="constant")
+        elif wav.shape[1] > TARGET_SAMPLES:
+            # Trim to target_samples
+            wav = wav[:, :TARGET_SAMPLES]
+
         wav = wav.mean(dim=0, keepdim=True)  # mono
         mel = mel_transform(wav)  # (1, n_mels, time)
         mel = torchaudio.functional.amplitude_to_DB(mel, multiplier=10.0, amin=1e-10, db_multiplier=0)
@@ -66,8 +77,7 @@ class VidSpectroDataset (Dataset):
             frames = torch.cat([frames, pad], dim=0)
         elif T > FIXED_NUM_FRAMES:
             # Center crop temporally
-            start = (T - FIXED_NUM_FRAMES) // 2
-            frames = frames[start:start + FIXED_NUM_FRAMES]
+            frames = frames[:FIXED_NUM_FRAMES]
 
 
         # 2) resize spatially and scale to [0, 1]
@@ -101,8 +111,8 @@ class VidSpectroDataset (Dataset):
     @staticmethod
     def collate_fn(batch):
         return {
-            'audio': torch.stack([x['audio'] for x in batch]),
-            'video': torch.stack([x['video'] for x in batch])
+            'audio': torch.stack([x[0]['audio'] for x in batch]),
+            'video': torch.stack([x[0]['video'] for x in batch])
         }
 
     def __len__(self):
