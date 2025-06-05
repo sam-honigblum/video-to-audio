@@ -1,10 +1,41 @@
 # =============================================================================
-# Config: configs/train.yaml  –  training overrides
+# Config: configs/train_LDM.yaml — Diff-Foley Stage-2 training (with VidSpectroDataset)
 # -----------------------------------------------------------------------------
-# batch_size : 8
-# epochs     : 250
-# guidance:
-#   classifier_free : 0.10
-#   double_guidance : true
-# ckpt_every_n_steps : 5000
+# Edit paths to match your setup.
 # =============================================================================
+
+data:
+  path: "/content/drive/MyDrive/Tsinghua/Multi-modal_Machine_Learning/MMML_Project/data/raw/vggsound"
+  split: "train"
+  fps: 4                     # TARGET_FPS in VidSpectroDataset
+  latent_width: 200           # must match UNet sample_size width
+  num_workers: 4
+  batch_size: 8
+
+audio:
+  sample_rate: 16000         # matches SAMPLE_RATE in VidSpectroDataset
+
+model:
+  base_width: 320
+
+diffusion:
+  timesteps: 1000
+  beta_start: 0.0001
+  beta_end: 0.02
+  guidance_p: 0.1
+
+optim:
+  lr: 1e-4
+  ema_decay: 0.9999
+
+training:
+  epochs: 250
+  ckpt_dir: "/content/drive/MyDrive/MMML_Project/video-to-audio/models/LDM_models/1/"
+  ckpt_every: 5000
+
+guidance:
+  classifier_free: 0.10
+  double_guidance: true
+
+cavp:
+  checkpoint: "/content/drive/MyDrive/MMML_Project/video-to-audio/models/cavp_model/step10.pth"
