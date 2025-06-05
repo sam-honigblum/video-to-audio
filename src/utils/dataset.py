@@ -48,7 +48,7 @@ class VidSpectroDataset (Dataset):
         wav = wav.mean(dim=0, keepdim=True)  # mono
 
         if wav.shape[1] > SAMPLE_RATE:
-            wav = wav[:, :, :SAMPLE_RATE]
+            wav = wav[:, :SAMPLE_RATE]
         else:
             pad_len = SAMPLE_RATE - wav.shape[1]
             wav = torch.nn.functional.pad(wav, (0, pad_len))
@@ -73,10 +73,10 @@ class VidSpectroDataset (Dataset):
             # Pad with last frame
             pad_len = FIXED_NUM_FRAMES - T
             pad = frames[-1:].repeat(pad_len, 1, 1, 1)
+            frames = torch.cat([frames, pad], dim=0)
         elif T > FIXED_NUM_FRAMES:
             # Center crop temporally
             frames = frames[:FIXED_NUM_FRAMES]
-
 
         # 2) resize spatially and scale to [0, 1]
         frames = (
