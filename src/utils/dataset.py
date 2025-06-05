@@ -119,7 +119,7 @@ class VidSpectroDataset (Dataset):
     def __getitem__(self, idx):
         name = self.ids[idx]
         spec = self.aud_to_spec(name)
-        vid, _ = self.gen_vid(name)
+        vid, t = self.gen_vid(name)
         return {
           "audio": spec,
           "video": vid
