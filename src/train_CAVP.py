@@ -21,7 +21,7 @@ from omegaconf import OmegaConf
 from tqdm import tqdm
 
 # from utils.data_loader import make_dataloader            # returns dict with keys: video, mel, video_id
-from models.video_encoder import CAVP, CAVP_Loss         # model & loss share logit_scale
+from src.models.cavp_encoder import CAVP, CAVP_Loss         # model & loss share logit_scale
 
 from torch.utils.data import DataLoader
 from utils.dataset import VidSpectroDataset
@@ -44,15 +44,13 @@ def train_cavp(cfg: OmegaConf) -> None:
 
     # 2 ─ Model + Loss --------------------------------------------------------
     model = CAVP(feat_dim=cfg.model.feat_dim,
-                 temperature=cfg.loss.temperature).half().to(device)
+                 temperature=cfg.loss.temperature).to(device)
     criterion = CAVP_Loss(clip_num=cfg.loss.clip_num, lambda_=cfg.loss.lambda_).to(device)
 
     # 3 ─ Optimiser -----------------------------------------------------------
     optimizer = optim.AdamW(
         model.parameters(),   # criterion has no standalone params
         lr=cfg.optim.lr,
-        betas=(0.9, 0.98),
-        weight_decay=cfg.optim.weight_decay,
     )
 
     # 4 ─ Checkpoint resume ---------------------------------------------------
@@ -95,7 +93,7 @@ def train_cavp(cfg: OmegaConf) -> None:
               pbar.update(1)
               print("  ")
 
-              if global_step % cfg.training.ckpt_every == 0:
+              if global_step > 0 and global_step % cfg.training.ckpt_every == 0:
                   ckpt = {
                       "model": model.state_dict(),
                       "loss": criterion.state_dict(),

@@ -42,18 +42,18 @@ class CAVP(nn.Module):
         video_feat = self.video_projection(video_feat)
         video_max = self.video_max_pool(video_feat.permute(0, 2, 1)).squeeze(-1)
         video_mean = self.video_mean_pool(video_feat.permute(0, 2, 1)).squeeze(-1)
-        video_max_norm = F.normalize(video_max, dim=-1)
-        video_mean_norm = F.normalize(video_mean, dim=-1)
+        video_max = F.normalize(video_max, dim=-1)
+        video_mean = F.normalize(video_mean, dim=-1)
 
         # audio encode
         spectrogram = spectrogram.permute(0, 1, 3, 2) # (B, 1, T, mel_num)
         spectrogram_feat = self.audio_encoder(spectrogram) #(B, T, C)
         spectrogram_max = self.audio_max_pool(spectrogram_feat.permute(0, 2, 1)).squeeze(-1)
         spectrogram_mean = self.audio_mean_pool(spectrogram_feat.permute(0, 2, 1)).squeeze(-1)
-        spectrogram_max_norm = F.normalize(spectrogram_max, dim=-1)
-        spectrogram_mean_norm = F.normalize(spectrogram_mean, dim=-1)
+        spectrogram_max = F.normalize(spectrogram_max, dim=-1)
+        spectrogram_mean = F.normalize(spectrogram_mean, dim=-1)
 
-        return video_max_norm, video_mean_norm, spectrogram_max_norm, spectrogram_mean_norm, self.logit_scale.exp()
+        return video_max, video_mean, spectrogram_max, spectrogram_mean, self.logit_scale.exp()
 
 class CAVP_Loss(nn.Module):
     """

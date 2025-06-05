@@ -44,7 +44,6 @@ class VidSpectroDataset (Dataset):
         if sr != SAMPLE_RATE:
             wav = torchaudio.functional.resample(wav, sr, SAMPLE_RATE)
 
-
         wav = wav.mean(dim=0, keepdim=True)  # mono
 
         if wav.shape[1] > SAMPLE_RATE:
@@ -120,6 +119,7 @@ class VidSpectroDataset (Dataset):
         name = self.ids[idx]
         spec = self.aud_to_spec(name)
         vid, t = self.gen_vid(name)
+        # print(f"idx {idx:4d} | id: {name} | vid: {vid.shape} | aud: {spec.shape}")
         return {
           "audio": spec,
           "video": vid
