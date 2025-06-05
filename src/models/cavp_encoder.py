@@ -44,39 +44,6 @@ class CAVP(nn.Module):
         spectrogram : (B, 1, mel_bins, T)
         """
 
-
-# -----------------------------------------------------------------------------
-# Contrastive losses
-# -----------------------------------------------------------------------------
-class _CLIPStyleLoss(nn.Module):
-    """OpenCLIP‑style InfoNCE with a *single* positive index per row.
-
-    Parameters
-    ----------
-    shared_logit_scale : nn.Parameter
-        The temperature parameter (log space) shared across the whole model.
-    """
-
-    def __init__(self, shared_logit_scale: nn.Parameter):
-        super().__init__()
-        self.logit_scale = shared_logit_scale
-
-    # ------------------------------------------------------------------
-    def forward(self, audio: torch.Tensor, video: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        """Compute symmetric KL‑divergence as in CLIP.
-
-        audio, video : (B, D) – l2‑normalised feature vectors
-        labels       : (B,)   – index of the *positive* video for each audio row
-        """
-        a = F.normalize(audio, dim=-1)
-        v = F.normalize(video, dim=-1)
-
-        logits = self.logit_scale.exp().clamp(max=100) * (a @ v.T)  # (B, B)
-
-        loss_a2v = F.cross_entropy(logits, labels)
-        loss_v2a = F.cross_entropy(logits.T, labels)
-        return 0.5 * (loss_a2v + loss_v2a)
-
         # video encode
         video_feat = self.video_encoder(video)
         b, c, t, h, w = video_feat.shape
@@ -85,18 +52,18 @@ class _CLIPStyleLoss(nn.Module):
         video_feat = self.video_projection(video_feat)
         video_max = self.video_max_pool(video_feat.permute(0, 2, 1)).squeeze(-1)
         video_mean = self.video_mean_pool(video_feat.permute(0, 2, 1)).squeeze(-1)
-        video_max_norm = F.normalize(video_max, dim=-1)
-        video_mean_norm = F.normalize(video_mean, dim=-1)
+        video_max = F.normalize(video_max, dim=-1)
+        video_mean = F.normalize(video_mean, dim=-1)
 
         # audio encode
         spectrogram = spectrogram.permute(0, 1, 3, 2) # (B, 1, T, mel_num)
         spectrogram_feat = self.audio_encoder(spectrogram) #(B, T, C)
         spectrogram_max = self.audio_max_pool(spectrogram_feat.permute(0, 2, 1)).squeeze(-1)
         spectrogram_mean = self.audio_mean_pool(spectrogram_feat.permute(0, 2, 1)).squeeze(-1)
-        spectrogram_max_norm = F.normalize(spectrogram_max, dim=-1)
-        spectrogram_mean_norm = F.normalize(spectrogram_mean, dim=-1)
+        spectrogram_max = F.normalize(spectrogram_max, dim=-1)
+        spectrogram_mean = F.normalize(spectrogram_mean, dim=-1)
 
-        return video_max_norm, video_mean_norm, spectrogram_max_norm, spectrogram_mean_norm, self.logit_scale.exp()
+        return video_max, video_mean, spectrogram_max, spectrogram_mean, self.logit_scale.exp()
 
 
 # -----------------------------------------------------------------------------
@@ -104,7 +71,6 @@ class CAVP_Loss(nn.Module):
     """Combined semantic + temporal loss from Diff‑Foley.
 
     L_total = L_semantic + λ · L_temporal
-    """
     Implements   L_total = L_extra + λ · L_intra
     where
         L_extra  - semantic contrast  (different videos)
