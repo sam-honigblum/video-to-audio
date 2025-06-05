@@ -75,7 +75,6 @@ def train_cavp(cfg: OmegaConf) -> None:
     pbar = tqdm(total=total_steps, initial=global_step, unit="step")
     while global_step < total_steps:
         for i, data in enumerate(loader):
-            data = data[0]
             video = data["video"].to(device)          # (B, 3, F, H, W)
             mel   = data["audio"].to(device)            # (B, 1, n_mels, T)
 
