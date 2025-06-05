@@ -20,12 +20,12 @@ class CAVP(nn.Module):
 
         self.video_encoder = ResNet3dSlowOnly(depth=50, pretrained=None)
         self.video_projection = nn.Linear(2048, feat_dim)
-        self.video_max_pool = nn.MaxPool1d(kernel_size=16)
-        self.video_mean_pool = nn.AvgPool1d(kernel_size=16)
+        self.video_max_pool = nn.AdaptiveMaxPool1d(output_size=1)
+        self.video_mean_pool = nn.AdaptiveAvgPool1d(output_size=1)
 
         self.audio_encoder = Cnn14(feat_dim=feat_dim)
-        self.audio_max_pool = nn.MaxPool1d(kernel_size=16)
-        self.audio_mean_pool = nn.AvgPool1d(kernel_size=16)
+        self.audio_max_pool = nn.AdaptiveMaxPool1d(output_size=1)
+        self.audio_mean_pool = nn.AdaptiveAvgPool1d(output_size=1)
 
         self.logit_scale = nn.Parameter(torch.log(torch.tensor(1.0 / temperature)))
 
