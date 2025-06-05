@@ -25,7 +25,7 @@ from tqdm import tqdm
 
 from utils.dataset import VidSpectroDataset
 from models.latent_diffusion import LatentDiffusion
-from models.video_encoder import CAVP
+from models.cavp_encoder import CAVP
 from models.audio_autoencoder import EncodecWrapper
 from models.sampler import DPMSolverSampler
 

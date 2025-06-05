@@ -21,7 +21,7 @@ from omegaconf import OmegaConf
 from tqdm import tqdm
 
 # from utils.data_loader import make_dataloader            # returns dict with keys: video, mel, video_id
-from src.models.cavp_encoder import CAVP, CAVP_Loss         # model & loss share logit_scale
+from models.cavp_encoder import CAVP, CAVP_Loss         # model & loss share logit_scale
 
 from torch.utils.data import DataLoader
 from utils.dataset import VidSpectroDataset

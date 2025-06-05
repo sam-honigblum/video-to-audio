@@ -44,39 +44,6 @@ class CAVP(nn.Module):
         spectrogram : (B, 1, mel_bins, T)
         """
 
-
-# -----------------------------------------------------------------------------
-# Contrastive losses
-# -----------------------------------------------------------------------------
-class _CLIPStyleLoss(nn.Module):
-    """OpenCLIP‑style InfoNCE with a *single* positive index per row.
-
-    Parameters
-    ----------
-    shared_logit_scale : nn.Parameter
-        The temperature parameter (log space) shared across the whole model.
-    """
-
-    def __init__(self, shared_logit_scale: nn.Parameter):
-        super().__init__()
-        self.logit_scale = shared_logit_scale
-
-    # ------------------------------------------------------------------
-    def forward(self, audio: torch.Tensor, video: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        """Compute symmetric KL‑divergence as in CLIP.
-
-        audio, video : (B, D) – l2‑normalised feature vectors
-        labels       : (B,)   – index of the *positive* video for each audio row
-        """
-        a = F.normalize(audio, dim=-1)
-        v = F.normalize(video, dim=-1)
-
-        logits = self.logit_scale.exp().clamp(max=100) * (a @ v.T)  # (B, B)
-
-        loss_a2v = F.cross_entropy(logits, labels)
-        loss_v2a = F.cross_entropy(logits.T, labels)
-        return 0.5 * (loss_a2v + loss_v2a)
-
         # video encode
         video_feat = self.video_encoder(video)
         b, c, t, h, w = video_feat.shape
@@ -104,7 +71,6 @@ class CAVP_Loss(nn.Module):
     """Combined semantic + temporal loss from Diff‑Foley.
 
     L_total = L_semantic + λ · L_temporal
-    """
     Implements   L_total = L_extra + λ · L_intra
     where
         L_extra  - semantic contrast  (different videos)
