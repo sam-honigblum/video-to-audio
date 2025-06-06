@@ -116,7 +116,7 @@ class Cnn14(nn.Module):
 
         super(Cnn14, self).__init__()
 
-        self.bn0 = nn.BatchNorm2d(64)
+        self.bn = nn.BatchNorm2d(128)
 
         self.conv_block1 = ConvBlock(in_channels=1, out_channels=64)
         self.conv_block2 = ConvBlock(in_channels=64, out_channels=128)
@@ -126,20 +126,20 @@ class Cnn14(nn.Module):
         self.conv_block6 = ConvBlock(in_channels=1024, out_channels=2048)
 
         self.fc1 = nn.Linear(2048, 2048, bias=True)
-        self.fc_audioset = nn.Linear(2048, feat_dim, bias=True)
+        self.project_head = nn.Linear(2048, feat_dim, bias=True)
 
         self.init_weight()
 
     def init_weight(self):
-        init_bn(self.bn0)
+        init_bn(self.bn)
         init_layer(self.fc1)
-        init_layer(self.fc_audioset)
+        init_layer(self.project_head)
 
     def forward(self, x, mixup_lambda=None):
         """
         Input: (batch_size, data_length)"""
         x = x.transpose(1, 3)
-        x = self.bn0(x)
+        x = self.bn(x)
         x = x.transpose(1, 3)
 
         x = self.conv_block1(x, pool_size=(2, 2), pool_type="avg")
@@ -162,7 +162,7 @@ class Cnn14(nn.Module):
         lat_x = lat_x.transpose(1, 2)
         lat_x = F.relu_(self.fc1(lat_x))
         x = F.relu_(self.fc1(lat_x))
-        output = self.fc_audioset(x)
+        output = self.project_head(x)
         return output
 
 

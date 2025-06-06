@@ -21,7 +21,8 @@ class CAVP(nn.Module):
         vid_pretrained = None
         aud_pretrained = None
         if pretrain:
-            vid_pretrain = "video-to-audio/pretrained-models/resnet50-slowfast-encoder.pth"
+            vid_pretrained = "video-to-audio/pretrained-models/resnet50-slowfast-encoder.pth"
+            aud_pretrained = torch.load("video-to-audio/pretrained-models/cnn14-encoder.pth", map_location="cpu")["model"]
 
         self.video_encoder = ResNet3dSlowOnly(depth=50, pretrained=vid_pretrained)
         self.video_projection = nn.Linear(2048, feat_dim)
@@ -29,6 +30,10 @@ class CAVP(nn.Module):
         self.video_mean_pool = nn.AdaptiveAvgPool1d(output_size=1)
 
         self.audio_encoder = Cnn14(feat_dim=feat_dim)
+
+        if aud_pretrained:
+            self.audio_encoder.load_state_dict(aud_pretrained, strict=False)
+
         self.audio_max_pool = nn.AdaptiveMaxPool1d(output_size=1)
         self.audio_mean_pool = nn.AdaptiveAvgPool1d(output_size=1)
 
