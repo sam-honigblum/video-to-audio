@@ -61,21 +61,25 @@ class VidSpectroDataset (Dataset):
         frames, _, meta = read_video(f"{self.data_path}/{name}.mp4", pts_unit="sec")
         src_fps = meta["video_fps"]
 
-        # 1) temporal down-sample
-        step = 1
-        if src_fps > TARGET_FPS:
-            step = int(round(src_fps / TARGET_FPS))
-            frames = frames[::step]                        # still (T, H, W, C)
-
         T = frames.shape[0]
-        if T < FIXED_NUM_FRAMES:
-            # Pad with last frame
-            pad_len = FIXED_NUM_FRAMES - T
-            pad = frames[-1:].repeat(pad_len, 1, 1, 1)
-            frames = torch.cat([frames, pad], dim=0)
-        elif T > FIXED_NUM_FRAMES:
-            # Center crop temporally
-            frames = frames[:FIXED_NUM_FRAMES]
+        idxs = torch.linsapce(0, T, FIXED_NUM_FRAMES, dtype=torch.int)
+        frames = frames[idxs]
+
+        # # 1) temporal down-sample
+        # step = 1
+        # if src_fps > TARGET_FPS:
+        #     step = int(round(src_fps / TARGET_FPS))
+        #     frames = frames[::step]                        # still (T, H, W, C)
+
+        # T = frames.shape[0]
+        # if T < FIXED_NUM_FRAMES:
+        #     # Pad with last frame
+        #     pad_len = FIXED_NUM_FRAMES - T
+        #     pad = frames[-1:].repeat(pad_len, 1, 1, 1)
+        #     frames = torch.cat([frames, pad], dim=0)
+        # elif T > FIXED_NUM_FRAMES:
+        #     # Center crop temporally
+        #     frames = frames[:FIXED_NUM_FRAMES]
 
         # 2) resize spatially and scale to [0, 1]
         frames = (

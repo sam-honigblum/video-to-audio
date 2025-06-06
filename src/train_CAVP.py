@@ -45,6 +45,10 @@ def train_cavp(cfg: OmegaConf) -> None:
     # 2 ─ Model + Loss --------------------------------------------------------
     model = CAVP(feat_dim=cfg.model.feat_dim,
                  temperature=cfg.loss.temperature).to(device)
+
+    model.audio_encoder.load_state_dict(torch.load("pretrained-models/cnn14-encoder.pth", map_location="cpu"))
+    model.video_encoder.load_state_dict(torch.load("pretrained-models/resnet50-slowfast-encoder.pth", map_location="cpu"))
+
     criterion = CAVP_Loss(clip_num=cfg.loss.clip_num, lambda_=cfg.loss.lambda_).to(device)
 
     # 3 ─ Optimiser -----------------------------------------------------------
