@@ -2,17 +2,16 @@ numpy<2.0.0
 torch==2.1.0
 torchvision==0.16.0
 torchaudio==2.1.0
-#diffusers==0.25.0 get the 0.24.0 version for huggingface_hub 0.14.x
-accelerate==0.27.2
+diffusers==0.24.0
+accelerate==0.23.0  # downgraded to be compatible with huggingface_hub 0.14.x
 einops==0.7.0
-timm==0.9.12
+timm==0.6.12  # downgraded to be compatible with huggingface_hub 0.14.x
 omegaconf==2.3.0
 wandb==0.16.3    # or install tensorboard
 ffmpeg-python==0.2.0
 audiocraft>=1.3.0 #needed for audio autoencoder
 torchlibrosa>=0.1.0
 tqdm>=4.65.0 #needed for training loop
-diffusers==0.24.0        # version antérieure qui fonctionne avec huggingface_hub 0.14.x
 huggingface_hub==0.14.1
 
 -f https://download.openmmlab.com/mmcv/dist/cu121/torch2.1.0/index.html
