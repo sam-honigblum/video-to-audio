@@ -6,10 +6,12 @@
 
 import torch
 import torch.nn as nn
+from typing import Dict, Optional
 from torch.optim import AdamW
 from .audio_autoencoder import EncodecWrapper
 from .cavp_encoder     import CAVP as VideoEncoder
 from .sampler           import DPMSolverSampler
+
 
 class LatentDiffusion(nn.Module):
     """
@@ -28,19 +30,18 @@ class LatentDiffusion(nn.Module):
         beta_start: float = 1e-4,
         beta_end: float = 2e-2,
         guidance_prob: float = 0.2,
-        latent_width: int = 32,     # final W
+        latent_width: int = 32,
         target_sr: int = 24_000,
         device: str = "cuda",
+        video_encoder: Optional[nn.Module] = None
     ):
         super().__init__()
 
         # ----------------------------------------------------------------------------
         # 1. Pre-trained audio codec (frozen)  +  frozen video encoder
         # ----------------------------------------------------------------------------
-        self.first_stage: EncodecWrapper = (
-            EncodecWrapper(target_sr=target_sr).to(device).eval()
-        )
-        self.cond_stage: VideoEncoder = VideoEncoder().to(device).eval()
+        self.first_stage = EncodecWrapper(target_sr=target_sr).to(device).eval()
+        self.cond_stage = video_encoder or VideoEncoder().to(device).eval()
         for p in self.first_stage.parameters():
             p.requires_grad = False
         for p in self.cond_stage.parameters():

@@ -29,7 +29,7 @@ class EncodecWrapper(nn.Module):
         # ---- 2. tiny trainable projection  ----------------------------------
         #    EnCodec returns a list of `codebook_dim` discrete codes per frame.
         #    We embed them and stack into a latent tensor (B, C=codebook_dim, T')
-        vocab_size = self.codec.quantizers[0].codebook_size
+        vocab_size = self.codec.total_codebooks
         self.code_embed = nn.Embedding(vocab_size, codebook_dim)
 
     # -------------------------------------------------------------------------

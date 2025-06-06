@@ -36,26 +36,33 @@ from models.sampler import DPMSolverSampler
 from diffusers import UNet2DConditionModel
 
 
-def build_unet(in_channels: int, model_channels: int = 320, latent_w: int = 200):
-    """Light wrapper that mirrors Diff-Foley's UNet geometry."""
+def build_unet(
+        in_channels: int,
+        model_channels: int = 320,
+        latent_w: int = 32,
+        cross_attn_dim: int = 512
+    ) -> nn.Module:
+    """Fabrique un UNet de diffusion audio‐latent
+    entièrement paramétrable en largeur temporelle
+    et en dimension de cross‐attention vidéo."""
     return UNet2DConditionModel(
-        sample_size=(1, latent_w),                 # (height, width) – height is dummy (1)
-        in_channels=in_channels,             # 8 for EnCodec-24kHz
-        out_channels=in_channels,            # predict ε with same channels
-        layers_per_block=2,
-        block_out_channels=(model_channels, model_channels * 2, model_channels * 4),
-        down_block_types=(
-            "DownBlock2D",      # 1/2 W
-            "AttnDownBlock2D",  # 1/4 W + self-attention
-            "AttnDownBlock2D",  # 1/8 W
-        ),
-        up_block_types=(
-            "AttnUpBlock2D",    # 1/4 W
-            "AttnUpBlock2D",    # 1/2 W
-            "UpBlock2D",        # full W
-        ),
-        cross_attention_dim=512,            # matches CAVP token size
+        sample_size           = (1, latent_w),     # (H, W)
+        in_channels           = in_channels,
+        out_channels          = in_channels,
+        layers_per_block      = 2,
+        block_out_channels    = (model_channels,
+                                  model_channels * 2,
+                                  model_channels * 4),
+        down_block_types      = ("DownBlock2D",
+                                 "AttnDownBlock2D",
+                                 "AttnDownBlock2D"),
+        up_block_types        = ("AttnUpBlock2D",
+                                 "AttnUpBlock2D",
+                                 "UpBlock2D"),
+        cross_attention_dim   = cross_attn_dim
     )
+
+
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -108,11 +115,12 @@ def train_loop(cfg: OmegaConf) -> None:
     latent_channels = codec.code_embed.embedding_dim  # usually 8
 
     unet = build_unet(
-        in_channels      = latent_channels,
-        model_channels   = cfg.model.base_width,
-        latent_w         = cfg.data.latent_width,         # = 200 d’après le YAML
-        cross_attn_dim   = 512                            # CAVP → vecteur 512-D :contentReference[oaicite:1]{index=1}
+        in_channels    = latent_channels,
+        model_channels = cfg.model.base_width,
+        latent_w       = cfg.data.latent_width,
+        cross_attn_dim = 512
     ).to(device)
+
 
     cavp = CAVP_VideoOnly(cfg.cavp.checkpoint).to(device)
 
