@@ -8,8 +8,8 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from .audio_autoencoder import EncodecWrapper
-from .video_encoder     import VideoEncoder
-from .sampler           import DDIMSampler
+from .cavp_encoder     import CAVP as VideoEncoder
+from .sampler           import DPMSolverSampler
 
 class LatentDiffusion(nn.Module):
     """
