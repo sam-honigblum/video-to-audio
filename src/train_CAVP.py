@@ -44,7 +44,9 @@ def train_cavp(cfg: OmegaConf) -> None:
 
     # 2 ─ Model + Loss --------------------------------------------------------
     model = CAVP(feat_dim=cfg.model.feat_dim,
-                 temperature=cfg.loss.temperature).to(device)
+                 temperature=cfg.loss.temperature,
+                 pretrain=True,
+                 ).to(device)
     criterion = CAVP_Loss(clip_num=cfg.loss.clip_num, lambda_=cfg.loss.lambda_).to(device)
 
     # 3 ─ Optimiser -----------------------------------------------------------
