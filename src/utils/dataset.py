@@ -61,24 +61,24 @@ class VidSpectroDataset (Dataset):
         # read_video returns (T, H, W, C) uint8
         frames, _, meta = read_video(f"{self.data_path}/{name}.mp4", pts_unit="sec")
         src_fps = meta["video_fps"]
-
-        # 1) temporal down-sample
-        step = 1
-        if src_fps > TARGET_FPS:
-            step = int(round(src_fps / TARGET_FPS))
-            frames = frames[::step]                        # still (T, H, W, C)
-
-        T = frames.shape[0]
-        if T < FIXED_NUM_FRAMES:
-            # Pad with last frame
-            pad_len = FIXED_NUM_FRAMES - T
+        total_frames = frames.shape[0]
+        
+        # Calculate frame indices for regular temporal sampling
+        # We want 40 frames total, so we'll divide the video into 39 equal segments
+        # and take the first frame of each segment, plus the last frame of the video
+        if total_frames >= FIXED_NUM_FRAMES:
+            # Calculate indices for 39 evenly spaced frames + last frame
+            segment_size = total_frames / (FIXED_NUM_FRAMES - 1)
+            indices = [int(i * segment_size) for i in range(FIXED_NUM_FRAMES - 1)]
+            indices.append(total_frames - 1)  # Add the last frame
+            frames = frames[indices]
+        else:
+            # If we have fewer frames than needed, pad with the last frame
+            pad_len = FIXED_NUM_FRAMES - total_frames
             pad = frames[-1:].repeat(pad_len, 1, 1, 1)
             frames = torch.cat([frames, pad], dim=0)
-        elif T > FIXED_NUM_FRAMES:
-            # Center crop temporally
-            frames = frames[:FIXED_NUM_FRAMES]
 
-        # 2) resize spatially and scale to [0, 1]
+        # resize spatially and scale to [0, 1]
         frames = (
             torch.nn.functional.interpolate(
                 frames.permute(0, 3, 1, 2).float(),       # (T, C, H, W)
@@ -88,12 +88,12 @@ class VidSpectroDataset (Dataset):
             ) / 255.0
         )                                                 # (T, C, H, W) float32
 
-        # 3) reorder to (C, T, H, W)
+        # reorder to (C, T, H, W)
         frames = frames.permute(1, 0, 2, 3).contiguous()  # (C, T, H, W)
 
-        # 4) timestamps in seconds, 1-D tensor length T
-        fps = src_fps / step
-        t = torch.arange(frames.shape[1], dtype=torch.float32) / fps
+        # timestamps in seconds, 1-D tensor length T
+        duration = total_frames / src_fps
+        t = torch.linspace(0, duration, FIXED_NUM_FRAMES, dtype=torch.float32)
         return frames, t
 
     def get_ids(self):
