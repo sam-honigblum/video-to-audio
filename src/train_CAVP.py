@@ -91,6 +91,7 @@ def train_cavp(cfg: OmegaConf) -> None:
             # Logging & checkpoint ---------------------------------------
             pbar.set_description(f"loss={loss.item():.4f}")
             pbar.update(1)
+            print(" ")
 
             if global_step % cfg.training.ckpt_every == 0:
                 ckpt = {
