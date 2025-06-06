@@ -64,13 +64,9 @@ class VidSpectroDataset (Dataset):
         total_frames = frames.shape[0]
         
         # Calculate frame indices for regular temporal sampling
-        # We want 40 frames total, so we'll divide the video into 39 equal segments
-        # and take the first frame of each segment, plus the last frame of the video
         if total_frames >= FIXED_NUM_FRAMES:
             # Calculate indices for 39 evenly spaced frames + last frame
-            segment_size = total_frames / (FIXED_NUM_FRAMES - 1)
-            indices = [int(i * segment_size) for i in range(FIXED_NUM_FRAMES - 1)]
-            indices.append(total_frames - 1)  # Add the last frame
+            indices = torch.linspace(0, total_frames - 1, FIXED_NUM_FRAMES).long()
             frames = frames[indices]
         else:
             # If we have fewer frames than needed, pad with the last frame
