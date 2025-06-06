@@ -116,7 +116,7 @@ class Cnn14(nn.Module):
 
         super(Cnn14, self).__init__()
 
-        self.bn0 = nn.BatchNorm2d(128)
+        self.bn0 = nn.BatchNorm2d(64)
 
         self.conv_block1 = ConvBlock(in_channels=1, out_channels=64)
         self.conv_block2 = ConvBlock(in_channels=64, out_channels=128)

@@ -21,11 +21,9 @@ class CAVP(nn.Module):
         vid_pretrained = None
         aud_pretrained = None
         if pretrain:
-            # vid_pretrain = "video-to-audio/pretrained-models/resnet50-slowfast-encoder.pth"
-            vid_pretrained = "pretrained-models/resnet50-slowfast-encoder.pth"
+            vid_pretrain = "video-to-audio/pretrained-models/resnet50-slowfast-encoder.pth"
 
         self.video_encoder = ResNet3dSlowOnly(depth=50, pretrained=vid_pretrained)
-        self.video_encoder._save_to_state_dict("pretrained-models/resnet50_test.pth")
         self.video_projection = nn.Linear(2048, feat_dim)
         self.video_max_pool = nn.AdaptiveMaxPool1d(output_size=1)
         self.video_mean_pool = nn.AdaptiveAvgPool1d(output_size=1)

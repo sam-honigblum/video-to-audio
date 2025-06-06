@@ -62,9 +62,9 @@ class VidSpectroDataset (Dataset):
         src_fps = meta["video_fps"]
 
         T = frames.shape[0]
-        idxs = torch.linsapce(0, T, FIXED_NUM_FRAMES, dtype=torch.int)
+        idxs = torch.linspace(0, T, FIXED_NUM_FRAMES, dtype=torch.int)
         frames = frames[idxs]
-
+        print(frames.shape)
         # # 1) temporal down-sample
         # step = 1
         # if src_fps > TARGET_FPS:
@@ -94,10 +94,7 @@ class VidSpectroDataset (Dataset):
         # 3) reorder to (C, T, H, W)
         frames = frames.permute(1, 0, 2, 3).contiguous()  # (C, T, H, W)
 
-        # 4) timestamps in seconds, 1-D tensor length T
-        fps = src_fps / step
-        t = torch.arange(frames.shape[1], dtype=torch.float32) / fps
-        return frames, t
+        return frames
 
     def get_ids(self):
         seen = set()
@@ -122,7 +119,7 @@ class VidSpectroDataset (Dataset):
     def __getitem__(self, idx):
         name = self.ids[idx]
         spec = self.aud_to_spec(name)
-        vid, t = self.gen_vid(name)
+        vid = self.gen_vid(name)
         # print(f"idx {idx:4d} | id: {name} | vid: {vid.shape} | aud: {spec.shape}")
         return {
           "audio": spec,
