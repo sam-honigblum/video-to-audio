@@ -48,7 +48,7 @@ class VidSpectroDataset (Dataset):
 
         if wav.shape[1] > SAMPLE_RATE:
             wav = wav[:, :SAMPLE_RATE]
-        else:
+        elif wav.shape[1] < SAMPLE_RATE:
             pad_len = SAMPLE_RATE - wav.shape[1]
             wav = torch.nn.functional.pad(wav, (0, pad_len))
 
