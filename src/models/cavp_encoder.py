@@ -1,7 +1,10 @@
 # =============================================================================
-# File: src/models/video_encoder.py (patched)
+# File: src/models/video_encoder.py
 # Role: Frozen CAVP backbone that maps RGB video to 40×512 tokens
-#         + Corrected CAVP loss implementation (semantic + temporal)
+# -----------------------------------------------------------------------------
+# • Wraps a pretrained 3D-ViT (TimeSformer) fine-tuned with CAVP loss.
+# • Adds positional encodings so cross-attention lines up temporally.
+# • forward(video) → (B, 40, 512) for UNet cross-attention.
 # =============================================================================
 
 import torch
@@ -11,39 +14,26 @@ import math
 
 from .cavp_modules import Cnn14, ResNet3dSlowOnly
 
-# -----------------------------------------------------------------------------
-# Encoders
-# -----------------------------------------------------------------------------
 class CAVP(nn.Module):
-    """Video ⇄ Audio encoders with fixed projections used during diffusion."""
-
-    def __init__(self, feat_dim: int = 512, temperature: float = 0.07):
+    def __init__(self, feat_dim=512, temperature=0.07):
         super().__init__()
 
-        # ---------------- video branch ----------------
         self.video_encoder = ResNet3dSlowOnly(depth=50, pretrained=None)
         self.video_projection = nn.Linear(2048, feat_dim)
         self.video_max_pool = nn.AdaptiveMaxPool1d(output_size=1)
         self.video_mean_pool = nn.AdaptiveAvgPool1d(output_size=1)
 
-        # ---------------- audio branch ----------------
         self.audio_encoder = Cnn14(feat_dim=feat_dim)
         self.audio_max_pool = nn.AdaptiveMaxPool1d(output_size=1)
         self.audio_mean_pool = nn.AdaptiveAvgPool1d(output_size=1)
 
-        # shared learnable temperature (τ⁻¹)
         self.logit_scale = nn.Parameter(torch.log(torch.tensor(1.0 / temperature)))
 
-    # ---------------------------------------------------------------------
-    def forward(self, video: torch.Tensor, spectrogram: torch.Tensor):
-        """Returns l2‑normalised features ready for the CAVP loss.
-
-        Parameters
-        ----------
-        video : (B, C, T, H, W)
-        spectrogram : (B, 1, mel_bins, T)
+    def forward(self, video, spectrogram):
         """
-
+        video: (B, C, T, H, W)
+        spectrogram: (B, 1, mel_num, T)
+        """
         # video encode
         video_feat = self.video_encoder(video)
         b, c, t, h, w = video_feat.shape
@@ -65,12 +55,8 @@ class CAVP(nn.Module):
 
         return video_max, video_mean, spectrogram_max, spectrogram_mean, self.logit_scale.exp()
 
-
-# -----------------------------------------------------------------------------
 class CAVP_Loss(nn.Module):
-    """Combined semantic + temporal loss from Diff‑Foley.
-
-    L_total = L_semantic + λ · L_temporal
+    """
     Implements   L_total = L_extra + λ · L_intra
     where
         L_extra  - semantic contrast  (different videos)
@@ -112,4 +98,3 @@ class CAVP_Loss(nn.Module):
 
         intra_loss = (F.cross_entropy(intra_logits_per_vid, intra_labels) + F.cross_entropy(intra_logits_per_aud, intra_labels)) / 2.0
         return extra_loss + self.lambda_ * intra_loss
-
