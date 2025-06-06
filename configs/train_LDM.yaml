@@ -17,12 +17,15 @@ audio:
 
 model:
   base_width: 320
+  latent_channels: 8        # ← nouveau pour construire le U-Net
+  cross_attention_dim: 512  # ← explicite
 
 diffusion:
   timesteps: 1000
   beta_start: 0.0001
   beta_end: 0.02
   guidance_p: 0.1
+  latent_width: 200         # préférence unique ici
 
 optim:
   lr: 1e-4

@@ -95,11 +95,12 @@ def train_loop(cfg: OmegaConf) -> None:
     dataset = VidSpectroDataset(data_path=cfg.data.path, device=device)
     train_loader = DataLoader(
         dataset,
-        batch_size=cfg.data.batch_size,
-        shuffle=True,
-        num_workers=cfg.data.num_workers,
-        pin_memory=True,
-        drop_last=True
+        batch_size   = cfg.data.batch_size,
+        shuffle      = True,
+        num_workers  = cfg.data.num_workers,
+        pin_memory   = True,
+        drop_last    = True,
+        collate_fn   = VidSpectroDataset.collate_fn
     )
 
     # 2 ─ Models (codec + video encoder are frozen internally)
