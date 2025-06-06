@@ -22,7 +22,7 @@ class EncodecWrapper(nn.Module):
         super().__init__()
         # ---- 1. load and freeze the codec -----------------------------------
         from audiocraft.models import CompressionModel
-        ckpt_name = f"encodec_{target_sr // 1000}khz"
+        ckpt_name = f"hance-ai/descript-audio-codec-{target_sr // 1000}khz"
         self.codec = CompressionModel.get_pretrained(ckpt_name).to(device)
         self.codec.eval().requires_grad_(False)
 
