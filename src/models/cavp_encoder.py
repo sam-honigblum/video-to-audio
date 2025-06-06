@@ -97,4 +97,18 @@ class CAVP_Loss(nn.Module):
         intra_labels = torch.arange(intra_num_logits, device=video_mean_feats.device, dtype=torch.long).unsqueeze(0).repeat(intra_batches, 1).flatten() # create labels for everything all batches
 
         intra_loss = (F.cross_entropy(intra_logits_per_vid, intra_labels) + F.cross_entropy(intra_logits_per_aud, intra_labels)) / 2.0
+
         return extra_loss + self.lambda_ * intra_loss
+
+
+class CAVP_VideoOnly(nn.Module):
+    def __init__(self, ckpt:str, feat_dim:int=512):
+        super().__init__()
+        self.backbone = CAVP(feat_dim=feat_dim)
+        self.backbone.load_state_dict(torch.load(ckpt, map_location="cpu"))
+        self.backbone.eval().requires_grad_(False)
+    @torch.no_grad()
+    def forward(self, video):
+        v_max, v_mean, *_ = self.backbone(video, torch.empty(0))  # spectro factice
+        return v_mean           #  vector 512-D
+

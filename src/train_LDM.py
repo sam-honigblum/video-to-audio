@@ -25,7 +25,7 @@ from tqdm import tqdm
 
 from utils.dataset import VidSpectroDataset
 from models.latent_diffusion import LatentDiffusion
-from models.cavp_encoder import CAVP
+from models.cavp_encoder import CAVP, CAVPVideoOnly
 from models.audio_autoencoder import EncodecWrapper
 from models.sampler import DPMSolverSampler
 
@@ -36,10 +36,10 @@ from models.sampler import DPMSolverSampler
 from diffusers import UNet2DConditionModel
 
 
-def build_unet(in_channels: int, model_channels: int = 320) -> nn.Module:
+def build_unet(in_channels: int, model_channels: int = 320, latent_w: int = 200):
     """Light wrapper that mirrors Diff-Foley's UNet geometry."""
     return UNet2DConditionModel(
-        sample_size=(1, 32),                 # (height, width) – height is dummy (1)
+        sample_size=(1, latent_w),                 # (height, width) – height is dummy (1)
         in_channels=in_channels,             # 8 for EnCodec-24kHz
         out_channels=in_channels,            # predict ε with same channels
         layers_per_block=2,
@@ -106,24 +106,25 @@ def train_loop(cfg: OmegaConf) -> None:
     codec = EncodecWrapper(target_sr=cfg.audio.sample_rate).to(device).eval()
     latent_channels = codec.code_embed.embedding_dim  # usually 8
 
-    unet = build_unet(in_channels=latent_channels, model_channels=cfg.model.base_width)
-    unet.to(device)
+    unet = build_unet(
+        in_channels      = latent_channels,
+        model_channels   = cfg.model.base_width,
+        latent_w         = cfg.data.latent_width,         # = 200 d’après le YAML
+        cross_attn_dim   = 512                            # CAVP → vecteur 512-D :contentReference[oaicite:1]{index=1}
+    ).to(device)
 
-    cavp = CAVP().to(device).eval()
-    if "cavp" in cfg and "checkpoint" in cfg.cavp:
-        cavp.load_state_dict(torch.load(cfg.cavp.checkpoint, map_location=device))
-    for p in cavp.parameters():
-        p.requires_grad = False
+    cavp = CAVPVideoOnly(cfg.cavp.checkpoint).to(device)
 
     ldm = LatentDiffusion(
-        unet=unet,
-        timesteps=cfg.diffusion.timesteps,
-        beta_start=cfg.diffusion.beta_start,
-        beta_end=cfg.diffusion.beta_end,
-        guidance_prob=cfg.diffusion.guidance_p,
-        latent_width=cfg.data.latent_width,
-        target_sr=cfg.audio.sample_rate,
-        device=device,
+        unet          = unet,
+        video_encoder = cavp,        # ➜ nouveau paramètre dans LatentDiffusion.__init__
+        timesteps     = cfg.diffusion.timesteps,
+        beta_start    = cfg.diffusion.beta_start,
+        beta_end      = cfg.diffusion.beta_end,
+        guidance_prob = cfg.diffusion.guidance_p,
+        latent_width  = cfg.data.latent_width,
+        target_sr     = cfg.audio.sample_rate,
+        device        = device,
     ).to(device)
 
     # 3 ─ Optimiser & EMA
@@ -159,9 +160,8 @@ def train_loop(cfg: OmegaConf) -> None:
             # invert spectrogram to waveform before passing to LDM:
             # wav = some_inverse_mel_function(spec)  # (B, T)
             # For simplicity, assume spectrogram is fine—so skip encoding step.
-            wav = spec  # if LatentDiffusion is modified to accept spectrogram
 
-            loss = ldm(wav, video)
+            loss = ldm(spec, video)
             optimiser.zero_grad()
             loss.backward()
             optimiser.step()

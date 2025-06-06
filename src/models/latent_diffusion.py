@@ -8,8 +8,8 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from .audio_autoencoder import EncodecWrapper
-from .video_encoder     import VideoEncoder
-from .sampler           import DDIMSampler
+from .cavp_encoder     import CAVP as VideoEncoder
+from .sampler           import DPMSolverSampler
 
 class LatentDiffusion(nn.Module):
     """
@@ -78,7 +78,7 @@ class LatentDiffusion(nn.Module):
         # ----------------------------------------------------------------------------
         # 3. DDIM / DPM sampler wrapper
         # ----------------------------------------------------------------------------
-        self.sampler = DDIMSampler(self)
+        self.sampler = DPMSolverSampler(self)
 
         # ----------------------------------------------------------------------------
         # 4. Pre-compute β / ᾱ lookup tables
@@ -162,7 +162,7 @@ class LatentDiffusion(nn.Module):
         xt, eps = self.q_sample(z0, t)
 
         # 3. Condition on video
-        cond = self.cond_stage(video)     # (B, 40, 512) or whatever your VideoEncoder outputs
+        cond = self.cond_stage(video, x)     # (B, 40, 512) or whatever your VideoEncoder outputs
         if torch.rand(()) < self.guidance_prob:
             cond = torch.zeros_like(cond)
 
