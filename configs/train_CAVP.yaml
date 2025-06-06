@@ -1,6 +1,6 @@
 data:
-  # path: "/content/drive/MyDrive/College/Tsinghua/Multi-modal_Machine_Learning/MMML_Project/data/processed"
-  path: "/content/drive/MyDrive/MMML_Project/data/raw/vggsound"
+  path: "/content/drive/MyDrive/College/Tsinghua/Multi-modal_Machine_Learning/MMML_Project/data/raw/vggsound"
+  # path: "/content/drive/MyDrive/MMML_Project/data/raw/vggsound"
   batch_size: 8
   num_workers: 1
 model:
@@ -13,7 +13,7 @@ optim:
   lr: 1e-2
   weight_decay: 1e-4
 training:
-  ckpt_dir: "/content/drive/MyDrive/MMML_Project/checkpoints/cavp"
+  ckpt_dir: "/content/drive/MyDrive/College/Tsinghua/Multi-modal_Machine_Learning/MMML_Project/checkpoints/cavp"
   total_steps: 10_000
   clip_grad_norm: 1.0
   ckpt_every: 10
