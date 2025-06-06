@@ -114,7 +114,7 @@ def train_loop(cfg: OmegaConf) -> None:
         cross_attn_dim   = 512                            # CAVP → vecteur 512-D :contentReference[oaicite:1]{index=1}
     ).to(device)
 
-    cavp = CAVPVideoOnly(cfg.cavp.checkpoint).to(device)
+    cavp = CAVP_VideoOnly(cfg.cavp.checkpoint).to(device)
 
     ldm = LatentDiffusion(
         unet          = unet,
