@@ -118,7 +118,7 @@ def train_loop(cfg: OmegaConf) -> None:
 
     ldm = LatentDiffusion(
         unet          = unet,
-        video_encoder = cavp,        # ➜ nouveau paramètre dans LatentDiffusion.__init__
+        video_encoder = cavp,
         timesteps     = cfg.diffusion.timesteps,
         beta_start    = cfg.diffusion.beta_start,
         beta_end      = cfg.diffusion.beta_end,
