@@ -41,4 +41,4 @@ guidance:
   double_guidance: true
 
 cavp:
-  checkpoint: "/content/drive/MyDrive/College/Tsinghua/Multi-modal_Machine_Learning/MMML_Project/checkpoints/models/cavp/working_model/step50.pt"
+  checkpoint: "/content/drive/MyDrive/College/Tsinghua/Multi-modal_Machine_Learning/MMML_Project/checkpoints/cavp/working_model/step50.pt"
