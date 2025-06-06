@@ -26,6 +26,8 @@ from models.video_encoder import CAVP, CAVP_Loss         # model & loss share lo
 from torch.utils.data import DataLoader
 from utils.dataset import VidSpectroDataset
 
+from torch.cuda.amp import autocast
+
 
 # ────────────────────────────────────────────────────────────────────────────
 #  Training procedure
@@ -73,39 +75,41 @@ def train_cavp(cfg: OmegaConf) -> None:
     total_steps = cfg.training.total_steps
 
     pbar = tqdm(total=total_steps, initial=global_step, unit="step")
-    while global_step < total_steps:
-        for i, data in enumerate(loader):
-            video = data["video"].to(device)          # (B, 3, F, H, W)
-            mel   = data["audio"].to(device)            # (B, 1, n_mels, T)
 
-            # Forward ------------------------------------------------------
-            video_feats, video_mean_feats, audio_feats, audio_mean_feats, logit_scale = model(video, mel)      # order matches model.forward
-            loss = criterion(video_feats, video_mean_feats, audio_feats, audio_mean_feats, logit_scale)
+    with autocast():
+        while global_step < total_steps:
+            for i, data in enumerate(loader):
+                video = data["video"].to(device)          # (B, 3, F, H, W)
+                mel   = data["audio"].to(device)            # (B, 1, n_mels, T)
 
-            # Back‑prop ----------------------------------------------------
-            optimizer.zero_grad()
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), cfg.training.clip_grad_norm)
-            optimizer.step()
+                # Forward ------------------------------------------------------
+                video_feats, video_mean_feats, audio_feats, audio_mean_feats, logit_scale = model(video, mel)      # order matches model.forward
+                loss = criterion(video_feats, video_mean_feats, audio_feats, audio_mean_feats, logit_scale)
 
-            # Logging & checkpoint ---------------------------------------
-            pbar.set_description(f"loss={loss.item():.4f}")
-            pbar.update(1)
-            print(" ")
+                # Back‑prop ----------------------------------------------------
+                optimizer.zero_grad()
+                loss.backward()
+                nn.utils.clip_grad_norm_(model.parameters(), cfg.training.clip_grad_norm)
+                optimizer.step()
 
-            if global_step % cfg.training.ckpt_every == 0:
-                ckpt = {
-                    "model": model.state_dict(),
-                    "loss": criterion.state_dict(),
-                    "optim": optimizer.state_dict(),
-                    "step": global_step,
-                }
-                torch.save(ckpt, latest)
-                torch.save(ckpt, ckpt_dir / f"step{global_step}.pt")
+                # Logging & checkpoint ---------------------------------------
+                pbar.set_description(f"loss={loss.item():.4f}")
+                pbar.update(1)
+                print(" ")
 
-            global_step += 1
-            if global_step >= total_steps:
-                break
+                if global_step % cfg.training.ckpt_every == 0:
+                    ckpt = {
+                        "model": model.state_dict(),
+                        "loss": criterion.state_dict(),
+                        "optim": optimizer.state_dict(),
+                        "step": global_step,
+                    }
+                    torch.save(ckpt, latest)
+                    torch.save(ckpt, ckpt_dir / f"step{global_step}.pt")
+
+                global_step += 1
+                if global_step >= total_steps:
+                    break
 
     # 6 ─ Save final encoders -------------------------------------------------
     torch.save(model.audio_encoder.state_dict(), ckpt_dir / "audio_encoder.pth")
