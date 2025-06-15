@@ -89,6 +89,9 @@ class CAVP_Loss(nn.Module):
         logits_per_vid = logit_scale * torch.matmul(video_feats, audio_feats.T)
         logits_per_aud = logit_scale * torch.matmul(audio_feats, video_feats.T)
 
+        logits_per_vid[~torch.isfinite(logits_per_vid)] = 0.0
+        logits_per_aud[~torch.isfinite(logits_per_aud)] = 0.0
+
         num_logits = logits_per_vid.shape[0]
         labels = torch.arange(num_logits, device=video_feats.device, dtype=torch.long)
         extra_loss = (F.cross_entropy(logits_per_vid, labels) + F.cross_entropy(logits_per_aud, labels)) / 2.0
@@ -100,12 +103,14 @@ class CAVP_Loss(nn.Module):
         intra_logits_per_vid = logit_scale * torch.matmul(vid_intra_feats, aud_intra_feats.permute(0, 2, 1))
         intra_logits_per_aud = logit_scale * torch.matmul(aud_intra_feats, vid_intra_feats.permute(0, 2, 1))
 
+        intra_logits_per_vid[~torch.isfinite(intra_logits_per_vid)] = 0.0
+        intra_logits_per_aud[~torch.isfinite(intra_logits_per_aud)] = 0.0
+
         intra_batches, intra_num_logits, _ = intra_logits_per_vid.shape
         intra_logits_per_vid = intra_logits_per_vid.reshape(intra_batches * intra_num_logits, intra_num_logits)
         intra_logits_per_aud = intra_logits_per_aud.reshape(intra_batches * intra_num_logits, intra_num_logits)
 
         intra_labels = torch.arange(intra_num_logits, device=video_mean_feats.device, dtype=torch.long).unsqueeze(0).repeat(intra_batches, 1).flatten() # create labels for everything all batches
-
         intra_loss = (F.cross_entropy(intra_logits_per_vid, intra_labels) + F.cross_entropy(intra_logits_per_aud, intra_labels)) / 2.0
 
         return extra_loss + self.lambda_ * intra_loss
