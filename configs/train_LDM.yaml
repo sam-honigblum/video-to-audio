@@ -33,7 +33,7 @@ optim:
 
 training:
   total_steps: 10_000
-  ckpt_dir: "content/drive/MyDrive/MMML_Project/models/LDM_models/1/"
+  ckpt_dir: "content/drive/MyDrive/MMML_Project/checkpoints/ldm/a100-arnold"
   ckpt_every: 250
 
 guidance:
