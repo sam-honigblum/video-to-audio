@@ -136,6 +136,8 @@ class CAVP_VideoOnly(nn.Module):
         self.backbone.load_state_dict(state_dict, strict=False)
         self.backbone.eval().requires_grad_(False)
 
+        self.latent_dim = feat_dim
+
     @torch.no_grad()
     def forward(self, video, spectrogram):
         """
