@@ -144,7 +144,7 @@ class LatentDiffusion(nn.Module):
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         """
         Inverse of encode() when input was raw waveform.
-        If `z` came from a mel‐encoder, this decode is undefined (you'd need a separate decoder).
+        If `z` came from a mel‐encoded, this decode is undefined (you'd need a separate decoder).
         """
         z = z.squeeze(2)  # (B, C, W)
         return self.first_stage.decode(z)
@@ -152,6 +152,38 @@ class LatentDiffusion(nn.Module):
     # =============================================================================
     #                         training forward pass
     # =============================================================================
+
+    def q_sample(self, x_start: torch.Tensor, t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward diffusion process: q(x_t | x_0)
+        
+        Parameters
+        ----------
+        x_start : torch.Tensor
+            The initial latent (B, C, 1, W)
+        t : torch.Tensor
+            Timestep indices (B,)
+            
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            Noisy latent x_t and noise epsilon
+        """
+        if not hasattr(self, 'alphas_cumprod'):
+            raise RuntimeError("alphas_cumprod buffer not initialized")
+            
+        # Get the appropriate alphas for the timesteps
+        alphas_cumprod_t = self.alphas_cumprod[t].view(-1, 1, 1, 1)
+        sqrt_alphas_cumprod_t = torch.sqrt(alphas_cumprod_t)
+        sqrt_one_minus_alphas_cumprod_t = torch.sqrt(1.0 - alphas_cumprod_t)
+        
+        # Sample noise
+        noise = torch.randn_like(x_start)
+        
+        # Add noise to the latent
+        x_t = sqrt_alphas_cumprod_t * x_start + sqrt_one_minus_alphas_cumprod_t * noise
+        
+        return x_t, noise
 
     def forward(self, x, video):
         """
@@ -166,7 +198,7 @@ class LatentDiffusion(nn.Module):
         xt, eps = self.q_sample(z0, t)
 
         # 3. Condition on video
-        cond = self.cond_stage(video, x)     # (B, 40, 512) or whatever your VideoEncoder outputs
+        cond = self.cond_stage(video)     # (B, 40, 512) or whatever your VideoEncoder outputs
         if torch.rand(()) < self.guidance_prob:
             cond = torch.zeros_like(cond)
 

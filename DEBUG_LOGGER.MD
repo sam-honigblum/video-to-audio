@@ -57,3 +57,34 @@ The DPMSolverSampler is trying to access alphas_cumprod before it's fully initia
 3. Monitor for any remaining initialization issues
 
 ------------------------------------------------------------------------------------------------------------------------------s
+
+# Debug Log 3: LatentDiffusion Missing Method Issue
+
+## Issue Description
+- Error: 'LatentDiffusion' object has no attribute 'q_sample'
+- The error occurs during the forward pass of training
+- The q_sample method is missing from the LatentDiffusion class
+
+## Root Cause
+1. The LatentDiffusion class is missing the q_sample method which is required for the forward pass
+2. This method is needed to perform the diffusion process during training
+3. The method should use the registered buffers (alphas_cumprod) to add noise to the latent
+
+## Solution Implemented
+1. Added q_sample method to LatentDiffusion class:
+   - Implemented the forward diffusion process
+   - Used registered buffers for noise addition
+   - Added proper error handling and validation
+
+## Files Modified
+1. src/models/latent_diffusion.py
+   - Added q_sample method
+   - Ensured proper use of registered buffers
+   - Added validation checks
+
+## Next Steps
+1. Test the modified code
+2. Verify that training proceeds correctly
+3. Monitor for any remaining issues
+
+------------------------------------------------------------------------------------------------------------------------------s
