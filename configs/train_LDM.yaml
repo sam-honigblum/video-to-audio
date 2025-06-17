@@ -9,14 +9,14 @@ data:
   split: "train"
   fps: 4                     # TARGET_FPS in VidSpectroDataset
   latent_width: 64           # must match UNet sample_size width
-  num_workers: 2
   batch_size: 8
+  num_workers: 2
 
 audio:
   sample_rate: 16000         # matches SAMPLE_RATE in VidSpectroDataset
 
 model:
-  base_width: 320
+  base_width: 256
   latent_channels: 8        # ← nouveau pour construire le U-Net
   cross_attention_dim: 512  # ← explicite
 
@@ -32,9 +32,9 @@ optim:
   ema_decay: 0.9999
 
 training:
-  epochs: 250
+  total_steps: 10_000
   ckpt_dir: "content/drive/MyDrive/MMML_Project/models/LDM_models/1/"
-  ckpt_every: 5000
+  ckpt_every: 250
 
 guidance:
   classifier_free: 0.10

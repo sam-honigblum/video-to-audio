@@ -29,6 +29,8 @@ from models.cavp_encoder import CAVP, CAVP_VideoOnly
 from models.audio_autoencoder import EncodecWrapper
 from models.sampler import DPMSolverSampler
 
+from torch.cuda.amp import autocast
+
 # ────────────────────────────────────────────────────────────────────────────
 #  UNet factory (diffusers) – kept here so train_LDM.py is self-contained
 # ────────────────────────────────────────────────────────────────────────────
@@ -153,38 +155,42 @@ def train_loop(cfg: OmegaConf) -> None:
         print(f"▶ Resumed from step {start_step}.")
 
     # 5 ─ Training
-    global_step = start_step
     ldm.train()
-    for epoch in range(cfg.training.epochs):
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch}")
-        for batch in pbar:
-            # batch["audio"]: (B, 1, n_mels, T)   (mel-spectrogram)
-            # batch["video"]: (B, 3, F, H, W)      (video frames)
-            spec  = batch["audio"].to(device)
-            video = batch["video"].to(device)
+    global_step = start_step
+    total_steps = cfg.training.total_steps
 
-            #new audio encoder accepts spec
+    pbar = tqdm(total=total_steps, initial=global_step, unit="step")
+    with autocast():
+        while global_step < total_steps:
+            for i, data in enumerate(train_loader):
+                # batch["audio"]: (B, 1, n_mels, T)   (mel-spectrogram)
+                # batch["video"]: (B, 3, F, H, W)      (video frames)
+                spec  = data["audio"].to(device)
+                video = data["video"].to(device)
 
-            loss = ldm(spec, video)
-            optimiser.zero_grad()
-            loss.backward()
-            optimiser.step()
-            ema.update(ldm.unet)
+                #new audio encoder accepts spec as input
+                loss = ldm(spec, video)
+                optimiser.zero_grad()
+                loss.backward()
+                optimiser.step()
+                ema.update(ldm.unet)
 
-            pbar.set_postfix(loss=loss.item())
+                pbar.set_postfix(loss=loss.item())
+                pbar.update(1)
+                print(" ")
 
-            # ─ Checkpoint
-            if global_step != 0 and global_step % cfg.training.ckpt_every == 0:
-                ckpt = {
-                    "model": ldm.state_dict(),
-                    "optim": optimiser.state_dict(),
-                    "ema":   ema.shadow,
-                    "step":  global_step,
-                }
-                torch.save(ckpt, ckpt_dir / f"step{global_step}.pt")
-                torch.save(ckpt, latest_ckpt)
+                # ─ Checkpoint
+                if global_step != 0 and global_step % cfg.training.ckpt_every == 0:
+                    ckpt = {
+                        "model": ldm.state_dict(),
+                        "optim": optimiser.state_dict(),
+                        "ema":   ema.shadow,
+                        "step":  global_step,
+                    }
+                    torch.save(ckpt, ckpt_dir / f"step{global_step}.pt")
+                    torch.save(ckpt, latest_ckpt)
 
-            global_step += 1
+                global_step += 1
 
     # Save EMA-smoothed weights at the very end
     ema.copy_to(ldm.unet)
