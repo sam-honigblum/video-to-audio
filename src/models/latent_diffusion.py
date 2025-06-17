@@ -204,3 +204,22 @@ class LatentDiffusion(nn.Module):
 
     def configure_optim(self, lr: float = 1e-4):
         return AdamW(self.unet.parameters(), lr=lr)
+
+    def q_sample(
+        self,
+        z0: torch.Tensor,
+        t:  torch.Tensor,
+        noise: torch.Tensor | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Implémente le processus de diffusion q(z_t | z_0) :
+            z_t = sqrt( ᾱ_t ) · z_0  +  sqrt(1−ᾱ_t) · ε
+        Retourne  (z_t, ε) pour pouvoir calculer la MSE.
+        """
+        if noise is None:
+            noise = torch.randn_like(z0)
+
+        sqrt_a  = self.sqrt_alphas_cumprod[t].view(-1, 1, 1, 1)
+        sqrt_om = self.sqrt_one_minus_alphas_cumprod[t].view(-1, 1, 1, 1)
+        zt = sqrt_a * z0 + sqrt_om * noise
+        return zt, noise
