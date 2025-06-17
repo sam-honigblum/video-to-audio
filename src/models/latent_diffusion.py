@@ -153,6 +153,25 @@ class LatentDiffusion(nn.Module):
     #                         training forward pass
     # =============================================================================
 
+    def q_sample(self, x0, t):
+        """
+        Add noise to x0 at timestep t
+        x0 : (B, C, 1, latent) latent vectors
+        t  : (B,) integer timestep indices
+        """
+        # Get corresponding alpha_bar_t
+        batch_size = x0.size(0)
+        alphas_cumprod_t = self.alphas_cumprod[t].reshape(batch_size, 1, 1, 1)  # broadcastable
+        sqrt_alpha_bar = self.sqrt_alphas_cumprod[t].reshape(batch_size, 1, 1, 1)
+        sqrt_one_minus_alpha_bar = self.sqrt_one_minus_alphas_cumprod[t].reshape(batch_size, 1, 1, 1)
+
+        # Sample noise
+        eps = torch.randn_like(x0)
+
+        # Return x_t and the noise used
+        xt = sqrt_alpha_bar * x0 + sqrt_one_minus_alpha_bar * eps
+        return xt, eps
+
     def forward(self, x, video):
         """
         x     : either waveform (B,T) or spectrogram (B,1,128,T_frame)
@@ -187,7 +206,7 @@ class LatentDiffusion(nn.Module):
         To generate from a spectrogram instead of waveform, call:
             zT = torch.randn(B, C, 1, latent_width)
             eps_latent = sampler.ddim_sample(zT, cond, steps, guidance)
-            # Cannot decode an mel‐encoded latent via `decode()`. 
+            # Cannot decode an mel‐encoded latent via `decode()`.
             # You'd need a separate Mel‐decoder if training on mel.
         """
         cond = self.cond_stage(video)

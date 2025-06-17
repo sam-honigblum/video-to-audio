@@ -9,7 +9,7 @@ data:
   split: "train"
   fps: 4                     # TARGET_FPS in VidSpectroDataset
   latent_width: 200           # must match UNet sample_size width
-  num_workers: 4
+  num_workers: 2
   batch_size: 8
 
 audio:
@@ -41,4 +41,4 @@ guidance:
   double_guidance: true
 
 cavp:
-  checkpoint: "/content/drive/MyDrive/MMML_Project/checkpoints/cavp/working_model/step50.pt"
+  checkpoint: "/content/drive/MyDrive/MMML_Project/checkpoints/cavp/cavp-7500steps.pt"
