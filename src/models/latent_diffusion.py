@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from .sampler import DPMSolverSampler
-
+from .video_feat_pe import CAVPVideoPE
 
 class LatentDiffusion(nn.Module):
     """
@@ -29,8 +29,6 @@ class LatentDiffusion(nn.Module):
         beta_start: float = 1e-4,
         beta_end: float = 2e-2,
         guidance_prob: float = 0.2,
-        latent_width: int = 32,
-        target_sr: int = 24_000,
         device: str = "cuda",
     ):
         super().__init__()
@@ -57,11 +55,13 @@ class LatentDiffusion(nn.Module):
         for p in self.cond_stage.parameters():
             p.requires_grad = False
 
+        self.pe = CAVPVideoPE(self.cond_stage.latent_dim, self.cond_stage.latent_dim)
+
         # ----------------------------------------------------------------------------
         # 3. Small CNN to map (B,1,128,T) → (B, C, 1, W)
         # ----------------------------------------------------------------------------
         self.latent_channels = self.first_stage.latent_dim
-        self.latent_width = latent_width
+        self.latent_width = self.first_stage.latent_width
 
         # ----------------------------------------------------------------------------
         # 4. Trainable UNet backbone
@@ -143,12 +143,11 @@ class LatentDiffusion(nn.Module):
         xt, eps = self.q_sample(z0, t)
 
         # 3. Condition on video
-        cond = self.cond_stage(video, x)  # (B, 40, 512) or whatever your VideoEncoder outputs
+        cond = self.cond_stage(video, x)  # (B, 40, 512) or whatever your cavp outputs
+        cond = self.pe(cond) #projection and positional encoding of cavp latent vector
 
         if torch.rand(()) < self.guidance_prob:
             cond = torch.zeros_like(cond)
-
-        print(xt.shape, t.shape, cond.shape)
 
         # 4. Predict noise with UNet
         eps_hat = self.unet(xt, t, cond)
@@ -174,7 +173,7 @@ class LatentDiffusion(nn.Module):
 
         # For pure-spec inference, you'd skip the waveform path anyway.
         W = self.latent_width
-        zT = torch.randn(video.size(0), self.latent_channels, 1, W, device=video.device)
+        zT = torch.randn(video.size(0), self.latent_channels, W, W, device=video.device)
         z0 = self.sampler.ddim_sample(zT, cond, steps, guidance)
         return self.decode(z0)
 

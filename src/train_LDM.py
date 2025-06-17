@@ -39,14 +39,14 @@ from diffusers import UNet2DConditionModel
 def build_unet(
         in_channels: int,
         model_channels: int = 320,
-        latent_w: int = 32,
+        latent_w: int = 64,
         cross_attn_dim: int = 512
     ) -> nn.Module:
     """Fabrique un UNet de diffusion audio‐latent
     entièrement paramétrable en largeur temporelle
     et en dimension de cross‐attention vidéo."""
     return UNet2DConditionModel(
-        sample_size           = (1, latent_w),     # (H, W)
+        sample_size           = (latent_w, latent_w),     # (H, W)
         in_channels           = in_channels,
         out_channels          = in_channels,
         layers_per_block      = 2,
@@ -127,7 +127,7 @@ def train_loop(cfg: OmegaConf) -> None:
     ldm = LatentDiffusion(
         codec         = codec,
         unet          = unet,
-        video_encoder = cavp,
+        cavp          = cavp,
         timesteps     = cfg.diffusion.timesteps,
         beta_start    = cfg.diffusion.beta_start,
         beta_end      = cfg.diffusion.beta_end,

@@ -39,6 +39,8 @@ class CAVP(nn.Module):
 
         self.logit_scale = nn.Parameter(torch.log(torch.tensor(1.0 / temperature)))
 
+        self.latent_dim = feat_dim
+
     def forward(self, video, spectrogram):
         """
         video: (B, C, T, H, W)
@@ -122,15 +124,34 @@ class CAVP_VideoOnly(nn.Module):
         self.backbone = CAVP(feat_dim=feat_dim)
 
         # Load checkpoint
-        checkpoint = torch.load(ckpt, map_location="cpu")
+        checkpoint = torch.load(ckpt, map_location="cpu", weights_only=False)
         state_dict = checkpoint["model"]
 
         # Load state dict with strict=False to handle any remaining mismatches
-        self.backbone.load_state_dict(state_dict, strict=False, weights_only=False)
+        self.backbone.load_state_dict(state_dict, strict=False)
         self.backbone.eval().requires_grad_(False)
 
     @torch.no_grad()
-    def forward(self, video, spec):
-        v_max, v_mean, *_ = self.backbone(video, torch.zeros_like(spec, dtype=video.dtype))  # spectro factice
-        return v_mean           #  vector 512-D
+    def forward(self, video, spectrogram):
+        """
+        video: (B, C, T, H, W)
+        spectrogram: (B, 1, mel_num, T)
+
+        video_feat: (B, T, latent)
+        audio_feat: (B, T, latent)
+        """
+        # video encode
+        video_feat = self.video_encoder(video)
+        b, c, t, h, w = video_feat.shape
+        video_feat = F.avg_pool2d(video_feat.view(-1, h, w), kernel_size=h)
+        video_feat = video_feat.reshape(b, c, t).permute(0, 2, 1)
+        video_feat = self.video_projection(video_feat)
+        video_feat = F.normalize(video_feat, dim=-1)
+
+        # audio encode
+        spectrogram = spectrogram.permute(0, 1, 3, 2) # (B, 1, T, mel_num)
+        spectrogram_feat = self.audio_encoder(spectrogram) #(B, T, C)
+        spectrogram_feat = F.normalize(spectrogram_feat, dim=-1)
+
+        return video_feat, spectrogram_feat
 

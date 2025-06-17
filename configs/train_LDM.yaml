@@ -8,7 +8,7 @@ data:
   path: "/content/drive/MyDrive/MMML_Project/data/raw/vggsound"
   split: "train"
   fps: 4                     # TARGET_FPS in VidSpectroDataset
-  latent_width: 200           # must match UNet sample_size width
+  latent_width: 64           # must match UNet sample_size width
   num_workers: 2
   batch_size: 8
 

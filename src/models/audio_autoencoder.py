@@ -8,7 +8,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from diffusers.models.autoencoders.autoencoder_kl import AutoencoderKL
-
 class EncodecWrapper(nn.Module):
     """
     Wraps Meta's pretrained EnCodec neural codec so it looks like the
@@ -25,7 +24,8 @@ class EncodecWrapper(nn.Module):
         self,
         mel_bins: int = 128,
         T: int = 641,
-        latent_dim: int = 64,
+        latent_width: int = 64,
+        latent_dim: int = 4,
         device: str = "cuda",
     ):
         super().__init__()
@@ -35,7 +35,8 @@ class EncodecWrapper(nn.Module):
 
         self.mel_bins = mel_bins
         self.T = T
-        self.latent_dim = 4
+        self.latent_width = latent_width
+        self.latent_dim = latent_dim
 
     # -------------------------------------------------------------------------
     # Public API identical to your planned AutoencoderKL
@@ -68,9 +69,7 @@ class EncodecWrapper(nn.Module):
         returns:
             spec (B, 1, mel_bins, T) ~ these are log mel spectrograms -> need to de-log and convert into wav afterwards
         """
-        decoded = self.vae.decode(latents).sample
-
-        decoded = torch.mean(decoded, dim=1, keepdim=True)
+        decoded = self.vae.decode(latents).sample[:, 0] #use only first channel
 
         spec = F.interpolate(decoded, size=(self.mel_bins, self.T), mode="bilinear")
 
