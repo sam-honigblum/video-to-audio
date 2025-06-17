@@ -12,6 +12,7 @@ from .audio_autoencoder import EncodecWrapper
 from .cavp_encoder     import CAVP as VideoEncoder
 from .sampler           import DPMSolverSampler
 
+# Debug Log 6: UNet2DConditionModel LoRA Scaling Fix
 
 class LatentDiffusion(nn.Module):
     """

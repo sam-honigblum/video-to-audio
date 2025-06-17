@@ -121,6 +121,16 @@ def train_loop(cfg: OmegaConf) -> None:
         cross_attn_dim = 512
     ).to(device)
 
+    # ─ PATCH: Disable LoRA scaling to avoid peft/accelerate version compatibility issues
+    def dummy_scale_lora_layers(*args, **kwargs):
+        """No-op function to replace problematic LoRA scaling"""
+        pass
+    
+    # Monkey-patch the diffusers scale_lora_layers function
+    import diffusers.utils.peft_utils
+    diffusers.utils.peft_utils.scale_lora_layers = dummy_scale_lora_layers
+    
+    print("LoRA scaling disabled to avoid version compatibility issues")
 
     cavp = CAVP_VideoOnly(cfg.cavp.checkpoint).to(device)
 
