@@ -150,8 +150,8 @@ class LatentDiffusion(nn.Module):
             cond = torch.zeros_like(cond)
 
         # 4. Predict noise with UNet
-        eps_hat = self.unet(xt, t, cond)
-        return nn.functional.mse_loss(eps_hat, eps)
+        eps_hat = self.unet(xt, t, cond) #returns UNet2DConditionOutput , need to use sample to get actual result
+        return nn.functional.mse_loss(eps_hat.sample, eps)
 
     # =============================================================================
     #                            inference
