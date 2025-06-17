@@ -24,7 +24,7 @@ class EncodecWrapper(nn.Module):
         from audiocraft.models import CompressionModel
         ckpt_name = f"hance-ai/descript-audio-codec-{target_sr // 1000}khz"
         self.codec = CompressionModel.get_pretrained(ckpt_name).to(device)
-        # self.codec.eval().requires_grad_(False)
+        self.codec.eval().requires_grad_(False)
 
         # ---- 2. tiny trainable projection  ----------------------------------
         #    EnCodec returns a list of `codebook_dim` discrete codes per frame.
