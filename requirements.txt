@@ -1,7 +1,7 @@
 numpy<2.0.0
-torch==2.5.0
-torchvision==0.20.0
-torchaudio==2.5.0
+torch==2.4.0
+torchvision==0.29.0
+torchaudio==2.4.0
 huggingface-hub==0.33.0
 diffusers==0.33.1
 transformers==4.52.4
@@ -16,8 +16,11 @@ torchlibrosa>=0.1.0
 tqdm>=4.65.0 #needed for training loop
 av==14.4.0
 
+--index-url https://download.pytorch.org/whl/cu121
+
+-f https://data.pyg.org/whl/torch-2.4.0+cu121.html
 torch-scatter==2.1.2
 torch-sparse==0.6.18
 
--f https://download.openmmlab.com/mmcv/dist/cu121/torch2.1.0/index.html
+-f https://download.openmmlab.com/mmcv/dist/cu121/torch2.4.0/index.html
 mmcv
