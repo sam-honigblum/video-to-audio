@@ -29,7 +29,7 @@ from models.cavp_encoder import CAVP, CAVP_VideoOnly
 from models.audio_autoencoder import EncodecWrapper
 from models.sampler import DPMSolverSampler
 
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 
 # ────────────────────────────────────────────────────────────────────────────
 #  UNet factory (diffusers) – kept here so train_LDM.py is self-contained
@@ -98,7 +98,8 @@ class EMA:
 # ────────────────────────────────────────────────────────────────────────────
 
 def train_loop(cfg: OmegaConf) -> None:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device_str = "cuda" if torch.cuda.is_available() else "cpu"
+    device = torch.device(device_str)
 
     # 1 ─ Dataset & DataLoader using VidSpectroDataset
     dataset = VidSpectroDataset(data_path=cfg.data.path, device=device)
@@ -160,7 +161,7 @@ def train_loop(cfg: OmegaConf) -> None:
     total_steps = cfg.training.total_steps
 
     pbar = tqdm(total=total_steps, initial=global_step, unit="step")
-    with autocast():
+    with autocast(device_type=device_str):
         while global_step < total_steps:
             for i, data in enumerate(train_loader):
                 # batch["audio"]: (B, 1, n_mels, T)   (mel-spectrogram)
@@ -175,7 +176,7 @@ def train_loop(cfg: OmegaConf) -> None:
                 optimiser.step()
                 ema.update(ldm.unet)
 
-                pbar.set_postfix(loss=loss.item())
+                pbar.set_description(loss=loss.item())
                 pbar.update(1)
                 print(" ")
 

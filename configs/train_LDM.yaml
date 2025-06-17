@@ -9,7 +9,7 @@ data:
   split: "train"
   fps: 4                     # TARGET_FPS in VidSpectroDataset
   latent_width: 64           # must match UNet sample_size width
-  batch_size: 8
+  batch_size: 22
   num_workers: 2
 
 audio:
@@ -32,9 +32,9 @@ optim:
   ema_decay: 0.9999
 
 training:
-  total_steps: 10_000
   ckpt_dir: "content/drive/MyDrive/MMML_Project/checkpoints/ldm/a100-arnold"
-  ckpt_every: 250
+  total_steps: 10_000
+  ckpt_every: 500
 
 guidance:
   classifier_free: 0.10
