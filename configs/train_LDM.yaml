@@ -8,15 +8,15 @@ data:
   path: "/content/drive/MyDrive/MMML_Project/data/raw/vggsound"
   split: "train"
   fps: 4                     # TARGET_FPS in VidSpectroDataset
-  latent_width: 200           # must match UNet sample_size width
-  num_workers: 4
-  batch_size: 8
+  latent_width: 64           # must match UNet sample_size width
+  batch_size: 22
+  num_workers: 2
 
 audio:
   sample_rate: 16000         # matches SAMPLE_RATE in VidSpectroDataset
 
 model:
-  base_width: 320
+  base_width: 256
   latent_channels: 8        # ← nouveau pour construire le U-Net
   cross_attention_dim: 512  # ← explicite
 
@@ -32,13 +32,13 @@ optim:
   ema_decay: 0.9999
 
 training:
-  epochs: 250
-  ckpt_dir: "content/drive/MyDrive/MMML_Project/models/LDM_models/1/"
-  ckpt_every: 5000
+  ckpt_dir: "content/drive/MyDrive/MMML_Project/checkpoints/ldm/a100-arnold"
+  total_steps: 10_000
+  ckpt_every: 500
 
 guidance:
   classifier_free: 0.10
   double_guidance: true
 
 cavp:
-  checkpoint: "/content/drive/MyDrive/MMML_Project/checkpoints/cavp/working_model/step50.pt"
+  checkpoint: "/content/drive/MyDrive/MMML_Project/checkpoints/cavp/cavp-7500steps.pt"

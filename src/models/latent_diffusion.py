@@ -1,17 +1,14 @@
 # =============================================================================
 # File: src/models/latent_diffusion.py  (modified)
 # Role: UNet‐based latent diffusion core with video cross‐attention
-#       plus “spectrogram→latent” encoder for spec inputs.
+#       plus "spectrogram→latent" encoder for spec inputs.
 # =============================================================================
 
 import torch
 import torch.nn as nn
-from typing import Dict, Optional
 from torch.optim import AdamW
-from .audio_autoencoder import EncodecWrapper
-from .cavp_encoder     import CAVP as VideoEncoder
-from .sampler           import DPMSolverSampler
-
+from .sampler import DPMSolverSampler
+from .video_feat_pe import CAVPVideoPE
 
 class LatentDiffusion(nn.Module):
     """
@@ -25,76 +22,65 @@ class LatentDiffusion(nn.Module):
 
     def __init__(
         self,
+        codec: nn.Module,
         unet: nn.Module,
+        cavp: nn.Module,
         timesteps: int = 1_000,
         beta_start: float = 1e-4,
         beta_end: float = 2e-2,
         guidance_prob: float = 0.2,
-        latent_width: int = 32,
-        target_sr: int = 24_000,
         device: str = "cuda",
-        video_encoder: Optional[nn.Module] = None
     ):
         super().__init__()
 
         # ----------------------------------------------------------------------------
-        # 1. Pre-trained audio codec (frozen)  +  frozen video encoder
-        # ----------------------------------------------------------------------------
-        self.first_stage = EncodecWrapper(target_sr=target_sr).to(device).eval()
-        self.cond_stage = video_encoder or VideoEncoder().to(device).eval()
-        for p in self.first_stage.parameters():
-            p.requires_grad = False
-        for p in self.cond_stage.parameters():
-            p.requires_grad = False
-
-        # ----------------------------------------------------------------------------
-        # 1.b  Small CNN to map (B,1,128,T) → (B, C, 1, W)
-        #     where C = latent_channels (e.g. 8), W = latent_width (32)
-        # ----------------------------------------------------------------------------
-        self.latent_channels = self.first_stage.code_embed.embedding_dim  # e.g. 8
-        self.latent_width    = latent_width
-
-        # This spec_encoder collapses 128 mel‐bins into latent_channels,
-        # then downsamples/pads time to exactly latent_width columns.
-        self.spec_encoder = nn.Sequential(
-            # Conv over mel‐bins: kernel (128,1) → "squeeze" mel dimension
-            nn.Conv2d(
-                in_channels=1,
-                out_channels=self.latent_channels,
-                kernel_size=(128, 1),
-                stride=(1, 1),
-                padding=(0, 0),
-            ),
-            nn.ReLU(inplace=True),
-            # Now shape is (B, latent_channels, T), but in 2D conv format: (B, C, 1, T)
-            # Next: pad or interpolate along the W axis to exactly latent_width
-            nn.Upsample(size=(1, self.latent_width), mode="bilinear", align_corners=False),
-        )
-
-        # ----------------------------------------------------------------------------
-        # 2. Trainable UNet backbone
-        # ----------------------------------------------------------------------------
-        self.unet = unet
-
-        # ----------------------------------------------------------------------------
-        # 3. DDIM / DPM sampler wrapper
-        # ----------------------------------------------------------------------------
-        self.sampler = DPMSolverSampler(self)
-
-        # ----------------------------------------------------------------------------
-        # 4. Pre-compute β / ᾱ lookup tables
+        # 1. Pre-compute β / ᾱ lookup tables FIRST
         # ----------------------------------------------------------------------------
         betas = torch.linspace(beta_start, beta_end, timesteps, device=device)
         alphas = 1.0 - betas
         alphas_cumprod = torch.cumprod(alphas, 0)
         self.register_buffer("alphas_cumprod", alphas_cumprod)
-        self.register_buffer("sqrt_one_minus_alphas_cumprod", (1.0 - alphas_cumprod).sqrt())
+        self.register_buffer(
+            "sqrt_one_minus_alphas_cumprod", (1.0 - alphas_cumprod).sqrt()
+        )
         self.register_buffer("sqrt_alphas_cumprod", alphas_cumprod.sqrt())
 
         # ----------------------------------------------------------------------------
-        # 5. Other hyperparams
+        # 2. Pre-trained audio codec (frozen)  +  frozen video encoder
+        # ----------------------------------------------------------------------------
+        self.first_stage = codec
+        self.cond_stage = cavp
+        for p in self.first_stage.parameters():
+            p.requires_grad = False
+        for p in self.cond_stage.parameters():
+            p.requires_grad = False
+
+        self.pe = CAVPVideoPE(self.cond_stage.latent_dim, self.cond_stage.latent_dim)
+
+        # ----------------------------------------------------------------------------
+        # 3. Small CNN to map (B,1,128,T) → (B, C, 1, W)
+        # ----------------------------------------------------------------------------
+        self.latent_channels = self.first_stage.latent_dim
+        self.latent_width = self.first_stage.latent_width
+
+        # ----------------------------------------------------------------------------
+        # 4. Trainable UNet backbone
+        # ----------------------------------------------------------------------------
+        self.unet = unet
+
+        # ----------------------------------------------------------------------------
+        # 5. DDIM / DPM sampler wrapper (now alphas_cumprod is initialized)
+        # ----------------------------------------------------------------------------
+        self.sampler = DPMSolverSampler(self)
+
+        # ----------------------------------------------------------------------------
+        # 6. Other hyperparams
         # ----------------------------------------------------------------------------
         self.guidance_prob = guidance_prob
+
+        # Validate initialization
+        if not hasattr(self, "alphas_cumprod"):
+            raise RuntimeError("Failed to initialize alphas_cumprod buffer")
 
     # =============================================================================
     #                           helper methods
@@ -112,43 +98,37 @@ class LatentDiffusion(nn.Module):
         Returns:
             latent z:  shape = (B, C, 1, W) exactly
         """
-        # Case 1: Raw waveform
-        if x.ndim == 2 or (x.ndim == 3 and x.shape[1] == 1):
-            # let EnCodec produce its own latent_width “W_true”
-            z = self.first_stage.encode(x)   # (B, C, W_true)
-            W_true = z.shape[-1]
-            # If W_true != latent_width, pad or truncate
-            if W_true > self.latent_width:
-                z = z[..., : self.latent_width]
-            elif W_true < self.latent_width:
-                pad = torch.zeros_like(z[..., :1]).repeat(1, 1, self.latent_width - W_true)
-                z = torch.cat([z, pad], dim=-1)
-            return z.unsqueeze(2)  # → (B, C, 1, latent_width)
-
-        # Case 2: Mel-spectrogram input
-        elif x.ndim == 4 and x.shape[1] == 1 and x.shape[2] == 128:
-            # x: (B, 1, 128, T_frame)
-            z = self.spec_encoder(x)  # (B, C, 1, latent_width)
-            return z
-
-        else:
-            raise ValueError(
-                f"Unsupported shape for encode(): {x.shape}. "
-                "Expected waveform (B,T) or (B,1,T) or mel-spec (B,1,128,T_frame)."
-            )
+        return self.first_stage.encode(x)
 
     @torch.no_grad()
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         """
         Inverse of encode() when input was raw waveform.
-        If `z` came from a mel‐encoder, this decode is undefined (you’d need a separate decoder).
+        If `z` came from a mel‐encoder, this decode is undefined (you'd need a separate decoder).
         """
-        z = z.squeeze(2)  # (B, C, W)
         return self.first_stage.decode(z)
 
     # =============================================================================
     #                         training forward pass
     # =============================================================================
+
+    def q_sample(self, x0, t):
+        """
+        Add noise to x0 at timestep t
+        x0 : (B, C, 1, latent) latent vectors
+        t  : (B,) integer timestep indices
+        """
+        # Get corresponding alpha_bar_t
+        batch_size = x0.size(0)
+        sqrt_alpha_bar = self.sqrt_alphas_cumprod[t].reshape(batch_size, 1, 1, 1)
+        sqrt_one_minus_alpha_bar = self.sqrt_one_minus_alphas_cumprod[t].reshape(batch_size, 1, 1, 1)
+
+        # Sample noise
+        eps = torch.randn_like(x0)
+
+        # Return x_t and the noise used
+        xt = sqrt_alpha_bar * x0 + sqrt_one_minus_alpha_bar * eps
+        return xt, eps
 
     def forward(self, x, video):
         """
@@ -163,13 +143,15 @@ class LatentDiffusion(nn.Module):
         xt, eps = self.q_sample(z0, t)
 
         # 3. Condition on video
-        cond = self.cond_stage(video, x)     # (B, 40, 512) or whatever your VideoEncoder outputs
+        cond, _ = self.cond_stage(video, x)  # returns video, and audio feat, but we are only conditioning on video_feats (B, T, latent)
+        cond = self.pe(cond) #projection and positional encoding of cavp latent vector
+
         if torch.rand(()) < self.guidance_prob:
             cond = torch.zeros_like(cond)
 
         # 4. Predict noise with UNet
-        eps_hat = self.unet(xt, t, cond)
-        return nn.functional.mse_loss(eps_hat, eps)
+        eps_hat = self.unet(xt, t, cond) #returns UNet2DConditionOutput , need to use sample to get actual result
+        return nn.functional.mse_loss(eps_hat.sample, eps)
 
     # =============================================================================
     #                            inference
@@ -184,14 +166,14 @@ class LatentDiffusion(nn.Module):
         To generate from a spectrogram instead of waveform, call:
             zT = torch.randn(B, C, 1, latent_width)
             eps_latent = sampler.ddim_sample(zT, cond, steps, guidance)
-            # Cannot decode an mel‐encoded latent via `decode()`. 
-            # You’d need a separate Mel‐decoder if training on mel.
+            # Cannot decode an mel‐encoded latent via `decode()`.
+            # You'd need a separate Mel‐decoder if training on mel.
         """
         cond = self.cond_stage(video)
 
         # For pure-spec inference, you'd skip the waveform path anyway.
         W = self.latent_width
-        zT = torch.randn(video.size(0), self.latent_channels, 1, W, device=video.device)
+        zT = torch.randn(video.size(0), self.latent_channels, W, W, device=video.device)
         z0 = self.sampler.ddim_sample(zT, cond, steps, guidance)
         return self.decode(z0)
 

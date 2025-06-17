@@ -26,14 +26,15 @@ from models.cavp_encoder import CAVP, CAVP_Loss         # model & loss share log
 from torch.utils.data import DataLoader
 from utils.dataset import VidSpectroDataset
 
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 
 # ────────────────────────────────────────────────────────────────────────────
 #  Training procedure
 # ────────────────────────────────────────────────────────────────────────────
 
 def train_cavp(cfg: OmegaConf) -> None:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device_str = "cuda" if torch.cuda.is_available() else "cpu"
+    device = torch.device(device_str)
 
     # 1 ─ Data ----------------------------------------------------------------
     # loader = make_dataloader(cfg.data, split="train")  # should yield mel‑spectrograms, not raw wav
@@ -74,7 +75,7 @@ def train_cavp(cfg: OmegaConf) -> None:
     total_steps = cfg.training.total_steps
 
     pbar = tqdm(total=total_steps, initial=global_step, unit="step")
-    with autocast():
+    with autocast(device_type=device_str):
       while global_step < total_steps:
           for i, data in enumerate(loader):
               video = data["video"].to(device)          # (B, 3, F, H, W)

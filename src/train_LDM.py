@@ -29,6 +29,8 @@ from models.cavp_encoder import CAVP, CAVP_VideoOnly
 from models.audio_autoencoder import EncodecWrapper
 from models.sampler import DPMSolverSampler
 
+from torch.amp import autocast
+
 # ────────────────────────────────────────────────────────────────────────────
 #  UNet factory (diffusers) – kept here so train_LDM.py is self-contained
 # ────────────────────────────────────────────────────────────────────────────
@@ -39,14 +41,14 @@ from diffusers import UNet2DConditionModel
 def build_unet(
         in_channels: int,
         model_channels: int = 320,
-        latent_w: int = 32,
+        latent_w: int = 64,
         cross_attn_dim: int = 512
     ) -> nn.Module:
     """Fabrique un UNet de diffusion audio‐latent
     entièrement paramétrable en largeur temporelle
     et en dimension de cross‐attention vidéo."""
     return UNet2DConditionModel(
-        sample_size           = (1, latent_w),     # (H, W)
+        sample_size           = (latent_w, latent_w),     # (H, W)
         in_channels           = in_channels,
         out_channels          = in_channels,
         layers_per_block      = 2,
@@ -96,7 +98,8 @@ class EMA:
 # ────────────────────────────────────────────────────────────────────────────
 
 def train_loop(cfg: OmegaConf) -> None:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device_str = "cuda" if torch.cuda.is_available() else "cpu"
+    device = torch.device(device_str)
 
     # 1 ─ Dataset & DataLoader using VidSpectroDataset
     dataset = VidSpectroDataset(data_path=cfg.data.path, device=device)
@@ -111,8 +114,8 @@ def train_loop(cfg: OmegaConf) -> None:
     )
 
     # 2 ─ Models (codec + video encoder are frozen internally)
-    codec = EncodecWrapper(target_sr=cfg.audio.sample_rate).to(device).eval()
-    latent_channels = codec.code_embed.embedding_dim  # usually 8
+    codec = EncodecWrapper().to(device).eval()
+    latent_channels = codec.latent_dim
 
     unet = build_unet(
         in_channels    = latent_channels,
@@ -125,14 +128,13 @@ def train_loop(cfg: OmegaConf) -> None:
     cavp = CAVP_VideoOnly(cfg.cavp.checkpoint).to(device)
 
     ldm = LatentDiffusion(
+        codec         = codec,
         unet          = unet,
-        video_encoder = cavp,
+        cavp          = cavp,
         timesteps     = cfg.diffusion.timesteps,
         beta_start    = cfg.diffusion.beta_start,
         beta_end      = cfg.diffusion.beta_end,
         guidance_prob = cfg.diffusion.guidance_p,
-        latent_width  = cfg.data.latent_width,
-        target_sr     = cfg.audio.sample_rate,
         device        = device,
     ).to(device)
 
@@ -154,42 +156,42 @@ def train_loop(cfg: OmegaConf) -> None:
         print(f"▶ Resumed from step {start_step}.")
 
     # 5 ─ Training
-    global_step = start_step
     ldm.train()
-    for epoch in range(cfg.training.epochs):
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch}")
-        for batch in pbar:
-            # batch["audio"]: (B, 1, n_mels, T)   (mel-spectrogram)
-            # batch["video"]: (B, 3, F, H, W)      (video frames)
-            spec  = batch["audio"].to(device)
-            video = batch["video"].to(device)
+    global_step = start_step
+    total_steps = cfg.training.total_steps
 
-            # Convert mel-spectrogram → waveform (inverse mel) if needed:
-            # here, we assume EncodecWrapper accepts waveform; if not, you must
-            # invert spectrogram to waveform before passing to LDM:
-            # wav = some_inverse_mel_function(spec)  # (B, T)
-            # For simplicity, assume spectrogram is fine—so skip encoding step.
+    pbar = tqdm(total=total_steps, initial=global_step, unit="step")
+    with autocast(device_type=device_str):
+        while global_step < total_steps:
+            for i, data in enumerate(train_loader):
+                # batch["audio"]: (B, 1, n_mels, T)   (mel-spectrogram)
+                # batch["video"]: (B, 3, F, H, W)      (video frames)
+                spec  = data["audio"].to(device)
+                video = data["video"].to(device)
 
-            loss = ldm(spec, video)
-            optimiser.zero_grad()
-            loss.backward()
-            optimiser.step()
-            ema.update(ldm.unet)
+                #new audio encoder accepts spec as input
+                loss = ldm(spec, video)
+                optimiser.zero_grad()
+                loss.backward()
+                optimiser.step()
+                ema.update(ldm.unet)
 
-            pbar.set_postfix(loss=loss.item())
+                pbar.set_description(loss=loss.item())
+                pbar.update(1)
+                print(" ")
 
-            # ─ Checkpoint
-            if global_step != 0 and global_step % cfg.training.ckpt_every == 0:
-                ckpt = {
-                    "model": ldm.state_dict(),
-                    "optim": optimiser.state_dict(),
-                    "ema":   ema.shadow,
-                    "step":  global_step,
-                }
-                torch.save(ckpt, ckpt_dir / f"step{global_step}.pt")
-                torch.save(ckpt, latest_ckpt)
+                # ─ Checkpoint
+                if global_step != 0 and global_step % cfg.training.ckpt_every == 0:
+                    ckpt = {
+                        "model": ldm.state_dict(),
+                        "optim": optimiser.state_dict(),
+                        "ema":   ema.shadow,
+                        "step":  global_step,
+                    }
+                    torch.save(ckpt, ckpt_dir / f"step{global_step}.pt")
+                    torch.save(ckpt, latest_ckpt)
 
-            global_step += 1
+                global_step += 1
 
     # Save EMA-smoothed weights at the very end
     ema.copy_to(ldm.unet)

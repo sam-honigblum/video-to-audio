@@ -39,7 +39,9 @@ class CAVP(nn.Module):
 
         self.logit_scale = nn.Parameter(torch.log(torch.tensor(1.0 / temperature)))
 
-    def forward(self, video, spectrogram):
+        self.latent_dim = feat_dim
+
+    def forward(self, video, spectrogram, ldm=False):
         """
         video: (B, C, T, H, W)
         spectrogram: (B, 1, mel_num, T)
@@ -63,7 +65,12 @@ class CAVP(nn.Module):
         spectrogram_max = F.normalize(spectrogram_max, dim=-1)
         spectrogram_mean = F.normalize(spectrogram_mean, dim=-1)
 
-        return video_max, video_mean, spectrogram_max, spectrogram_mean, self.logit_scale.exp()
+        if ldm:
+            video_feat = F.normalize(video_feat, dim=-1)
+            spectrogram_feat = F.normalize(spectrogram_feat, dim=-1)
+            return video_feat, spectrogram_feat
+        else:
+            return video_max, video_mean, spectrogram_max, spectrogram_mean, self.logit_scale.exp()
 
 class CAVP_Loss(nn.Module):
     """
@@ -120,10 +127,26 @@ class CAVP_VideoOnly(nn.Module):
     def __init__(self, ckpt:str, feat_dim:int=512):
         super().__init__()
         self.backbone = CAVP(feat_dim=feat_dim)
-        self.backbone.load_state_dict(torch.load(ckpt, map_location="cpu")["model"])
+
+        # Load checkpoint
+        checkpoint = torch.load(ckpt, map_location="cpu", weights_only=False)
+        state_dict = checkpoint["model"]
+
+        # Load state dict with strict=False to handle any remaining mismatches
+        self.backbone.load_state_dict(state_dict, strict=False)
         self.backbone.eval().requires_grad_(False)
+
+        self.latent_dim = feat_dim
+
     @torch.no_grad()
-    def forward(self, video):
-        v_max, v_mean, *_ = self.backbone(video, torch.empty(0))  # spectro factice
-        return v_mean           #  vector 512-D
+    def forward(self, video, spectrogram):
+        """
+        video: (B, C, T, H, W)
+        spectrogram: (B, 1, mel_num, T)
+
+        video_feat: (B, T, latent)
+        audio_feat: (B, T, latent)
+        """
+        # video encode
+        return self.backbone(video, spectrogram, ldm=True)
 
