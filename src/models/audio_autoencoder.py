@@ -58,7 +58,7 @@ class EncodecWrapper(nn.Module):
 
         encoded_dist = self.vae.encode(spec_resized)
         latents = encoded_dist.latent_dist.sample()
-        print(latents.shape)
+
         return latents
 
     @torch.no_grad()

@@ -132,8 +132,6 @@ def train_loop(cfg: OmegaConf) -> None:
         beta_start    = cfg.diffusion.beta_start,
         beta_end      = cfg.diffusion.beta_end,
         guidance_prob = cfg.diffusion.guidance_p,
-        latent_width  = cfg.data.latent_width,
-        target_sr     = cfg.audio.sample_rate,
         device        = device,
     ).to(device)
 

@@ -41,7 +41,7 @@ class CAVP(nn.Module):
 
         self.latent_dim = feat_dim
 
-    def forward(self, video, spectrogram):
+    def forward(self, video, spectrogram, ldm=False):
         """
         video: (B, C, T, H, W)
         spectrogram: (B, 1, mel_num, T)
@@ -65,7 +65,12 @@ class CAVP(nn.Module):
         spectrogram_max = F.normalize(spectrogram_max, dim=-1)
         spectrogram_mean = F.normalize(spectrogram_mean, dim=-1)
 
-        return video_max, video_mean, spectrogram_max, spectrogram_mean, self.logit_scale.exp()
+        if ldm:
+            video_feat = F.normalize(video_feat, dim=-1)
+            spectrogram_feat = F.normalize(spectrogram_feat, dim=-1)
+            return video_feat, spectrogram_feat
+        else:
+            return video_max, video_mean, spectrogram_max, spectrogram_mean, self.logit_scale.exp()
 
 class CAVP_Loss(nn.Module):
     """
@@ -141,17 +146,5 @@ class CAVP_VideoOnly(nn.Module):
         audio_feat: (B, T, latent)
         """
         # video encode
-        video_feat = self.video_encoder(video)
-        b, c, t, h, w = video_feat.shape
-        video_feat = F.avg_pool2d(video_feat.view(-1, h, w), kernel_size=h)
-        video_feat = video_feat.reshape(b, c, t).permute(0, 2, 1)
-        video_feat = self.video_projection(video_feat)
-        video_feat = F.normalize(video_feat, dim=-1)
-
-        # audio encode
-        spectrogram = spectrogram.permute(0, 1, 3, 2) # (B, 1, T, mel_num)
-        spectrogram_feat = self.audio_encoder(spectrogram) #(B, T, C)
-        spectrogram_feat = F.normalize(spectrogram_feat, dim=-1)
-
-        return video_feat, spectrogram_feat
+        return self.backbone(video, spectrogram, ldm=True)
 

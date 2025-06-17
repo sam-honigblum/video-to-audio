@@ -143,7 +143,7 @@ class LatentDiffusion(nn.Module):
         xt, eps = self.q_sample(z0, t)
 
         # 3. Condition on video
-        cond = self.cond_stage(video, x)  # (B, 40, 512) or whatever your cavp outputs
+        cond, _ = self.cond_stage(video, x)  # returns video, and audio feat, but we are only conditioning on video_feats (B, T, latent)
         cond = self.pe(cond) #projection and positional encoding of cavp latent vector
 
         if torch.rand(()) < self.guidance_prob:
