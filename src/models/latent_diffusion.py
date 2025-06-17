@@ -1,7 +1,7 @@
 # =============================================================================
 # File: src/models/latent_diffusion.py  (modified)
 # Role: UNet‐based latent diffusion core with video cross‐attention
-#       plus “spectrogram→latent” encoder for spec inputs.
+#       plus "spectrogram→latent" encoder for spec inputs.
 # =============================================================================
 
 import torch
@@ -38,7 +38,17 @@ class LatentDiffusion(nn.Module):
         super().__init__()
 
         # ----------------------------------------------------------------------------
-        # 1. Pre-trained audio codec (frozen)  +  frozen video encoder
+        # 1. Pre-compute β / ᾱ lookup tables FIRST
+        # ----------------------------------------------------------------------------
+        betas = torch.linspace(beta_start, beta_end, timesteps, device=device)
+        alphas = 1.0 - betas
+        alphas_cumprod = torch.cumprod(alphas, 0)
+        self.register_buffer("alphas_cumprod", alphas_cumprod)
+        self.register_buffer("sqrt_one_minus_alphas_cumprod", (1.0 - alphas_cumprod).sqrt())
+        self.register_buffer("sqrt_alphas_cumprod", alphas_cumprod.sqrt())
+
+        # ----------------------------------------------------------------------------
+        # 2. Pre-trained audio codec (frozen)  +  frozen video encoder
         # ----------------------------------------------------------------------------
         self.first_stage = EncodecWrapper(target_sr=target_sr).to(device).eval()
         self.cond_stage = video_encoder or VideoEncoder().to(device).eval()
@@ -48,11 +58,10 @@ class LatentDiffusion(nn.Module):
             p.requires_grad = False
 
         # ----------------------------------------------------------------------------
-        # 1.b  Small CNN to map (B,1,128,T) → (B, C, 1, W)
-        #     where C = latent_channels (e.g. 8), W = latent_width (32)
+        # 3. Small CNN to map (B,1,128,T) → (B, C, 1, W)
         # ----------------------------------------------------------------------------
-        self.latent_channels = self.first_stage.code_embed.embedding_dim  # e.g. 8
-        self.latent_width    = latent_width
+        self.latent_channels = self.first_stage.code_embed.embedding_dim
+        self.latent_width = latent_width
 
         # This spec_encoder collapses 128 mel‐bins into latent_channels,
         # then downsamples/pads time to exactly latent_width columns.
@@ -72,29 +81,23 @@ class LatentDiffusion(nn.Module):
         )
 
         # ----------------------------------------------------------------------------
-        # 2. Trainable UNet backbone
+        # 4. Trainable UNet backbone
         # ----------------------------------------------------------------------------
         self.unet = unet
 
         # ----------------------------------------------------------------------------
-        # 3. DDIM / DPM sampler wrapper
+        # 5. DDIM / DPM sampler wrapper (now alphas_cumprod is initialized)
         # ----------------------------------------------------------------------------
         self.sampler = DPMSolverSampler(self)
 
         # ----------------------------------------------------------------------------
-        # 4. Pre-compute β / ᾱ lookup tables
-        # ----------------------------------------------------------------------------
-        betas = torch.linspace(beta_start, beta_end, timesteps, device=device)
-        alphas = 1.0 - betas
-        alphas_cumprod = torch.cumprod(alphas, 0)
-        self.register_buffer("alphas_cumprod", alphas_cumprod)
-        self.register_buffer("sqrt_one_minus_alphas_cumprod", (1.0 - alphas_cumprod).sqrt())
-        self.register_buffer("sqrt_alphas_cumprod", alphas_cumprod.sqrt())
-
-        # ----------------------------------------------------------------------------
-        # 5. Other hyperparams
+        # 6. Other hyperparams
         # ----------------------------------------------------------------------------
         self.guidance_prob = guidance_prob
+
+        # Validate initialization
+        if not hasattr(self, 'alphas_cumprod'):
+            raise RuntimeError("Failed to initialize alphas_cumprod buffer")
 
     # =============================================================================
     #                           helper methods
@@ -114,7 +117,7 @@ class LatentDiffusion(nn.Module):
         """
         # Case 1: Raw waveform
         if x.ndim == 2 or (x.ndim == 3 and x.shape[1] == 1):
-            # let EnCodec produce its own latent_width “W_true”
+            # let EnCodec produce its own latent_width "W_true"
             z = self.first_stage.encode(x)   # (B, C, W_true)
             W_true = z.shape[-1]
             # If W_true != latent_width, pad or truncate
@@ -141,7 +144,7 @@ class LatentDiffusion(nn.Module):
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         """
         Inverse of encode() when input was raw waveform.
-        If `z` came from a mel‐encoder, this decode is undefined (you’d need a separate decoder).
+        If `z` came from a mel‐encoder, this decode is undefined (you'd need a separate decoder).
         """
         z = z.squeeze(2)  # (B, C, W)
         return self.first_stage.decode(z)
@@ -185,7 +188,7 @@ class LatentDiffusion(nn.Module):
             zT = torch.randn(B, C, 1, latent_width)
             eps_latent = sampler.ddim_sample(zT, cond, steps, guidance)
             # Cannot decode an mel‐encoded latent via `decode()`. 
-            # You’d need a separate Mel‐decoder if training on mel.
+            # You'd need a separate Mel‐decoder if training on mel.
         """
         cond = self.cond_stage(video)
 
