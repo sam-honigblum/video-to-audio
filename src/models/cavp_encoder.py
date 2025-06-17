@@ -120,8 +120,30 @@ class CAVP_VideoOnly(nn.Module):
     def __init__(self, ckpt:str, feat_dim:int=512):
         super().__init__()
         self.backbone = CAVP(feat_dim=feat_dim)
-        self.backbone.load_state_dict(torch.load(ckpt, map_location="cpu")["model"])
+        
+        # Load checkpoint
+        checkpoint = torch.load(ckpt, map_location="cpu")
+        state_dict = checkpoint["model"]
+        
+        # Create key mapping for audio encoder
+        new_state_dict = {}
+        for k, v in state_dict.items():
+            if k.startswith("audio_encoder."):
+                # Map old keys to new keys
+                if "bn0" in k:
+                    new_key = k.replace("bn0", "bn")
+                elif "fc_audioset" in k:
+                    new_key = k.replace("fc_audioset", "project_head")
+                else:
+                    new_key = k
+                new_state_dict[new_key] = v
+            else:
+                new_state_dict[k] = v
+        
+        # Load state dict with strict=False to handle any remaining mismatches
+        self.backbone.load_state_dict(new_state_dict, strict=False)
         self.backbone.eval().requires_grad_(False)
+    
     @torch.no_grad()
     def forward(self, video):
         v_max, v_mean, *_ = self.backbone(video, torch.empty(0))  # spectro factice
