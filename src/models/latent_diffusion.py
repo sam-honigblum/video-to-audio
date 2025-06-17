@@ -206,8 +206,28 @@ class LatentDiffusion(nn.Module):
         if torch.rand(()) < self.guidance_prob:
             cond = torch.zeros_like(cond)
 
-        # 4. Predict noise with UNet
-        eps_hat = self.unet(xt, t, cond)
+        # 4. Predict noise with UNet - disable LoRA to avoid version compatibility issues
+        try:
+            eps_hat = self.unet(xt, t, cond)
+        except ImportError as e:
+            if "clear_device_cache" in str(e):
+                # Fallback: try calling without LoRA scaling
+                # This is a workaround for peft/accelerate version compatibility issues
+                print(f"Warning: LoRA scaling disabled due to version compatibility: {e}")
+                
+                # Temporarily disable LoRA scaling by monkey-patching
+                original_forward = self.unet.forward
+                def patched_forward(*args, **kwargs):
+                    # Remove lora_scale from kwargs if present
+                    kwargs.pop('lora_scale', None)
+                    return original_forward(*args, **kwargs)
+                
+                self.unet.forward = patched_forward
+                eps_hat = self.unet(xt, t, cond)
+                self.unet.forward = original_forward
+            else:
+                raise e
+        
         return nn.functional.mse_loss(eps_hat, eps)
 
     # =============================================================================

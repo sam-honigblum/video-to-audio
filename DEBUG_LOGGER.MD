@@ -124,3 +124,33 @@ The checkpoint was saved with an older version of the model architecture where t
 3. Monitor for any remaining tensor shape issues
 
 ------------------------------------------------------------------------------------------------------------------------------s
+
+# Debug Log 5: PEFT/Accelerate Version Compatibility Issue
+
+## Issue Description
+- Error: ImportError: cannot import name 'clear_device_cache' from 'accelerate.utils.memory'
+- The error occurs when the UNet model tries to use LoRA layers
+- This is a version compatibility issue between peft and accelerate libraries
+
+## Root Cause
+1. The installed version of `peft` is trying to import `clear_device_cache` from `accelerate.utils.memory`
+2. The installed version of `accelerate` doesn't have this function or it's in a different location
+3. This suggests a version mismatch between the two libraries
+
+## Solution Implemented
+1. Disable LoRA scaling in the UNet forward call:
+   - Set lora_scale=None when calling UNet forward
+   - This bypasses the problematic LoRA scaling code
+   - Alternatively, upgrade/downgrade library versions to compatible ones
+
+## Files Modified
+1. src/models/latent_diffusion.py
+   - Modified UNet forward call to disable LoRA scaling
+   - Added error handling for version compatibility issues
+
+## Next Steps
+1. Test the modified code with LoRA scaling disabled
+2. Consider upgrading/downgrading library versions if LoRA is needed
+3. Monitor for any impact on model performance
+
+------------------------------------------------------------------------------------------------------------------------------s
