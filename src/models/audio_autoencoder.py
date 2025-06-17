@@ -35,7 +35,7 @@ class EncodecWrapper(nn.Module):
 
         self.mel_bins = mel_bins
         self.T = T
-        self.latent_dim = latent_dim
+        self.latent_dim = 4
 
     # -------------------------------------------------------------------------
     # Public API identical to your planned AutoencoderKL
@@ -51,13 +51,13 @@ class EncodecWrapper(nn.Module):
         self.mel_bins = spec.shape[-2]
         self.T = spec.shape[-1]
 
-        spec_resized = F.interpolate(spec, size=(256, 256), mode="bilinear") #resize into 256x256 for vae encoder input
+        spec_resized = F.interpolate(spec, size=(512, 512), mode="bilinear") #resize into 256x256 for vae encoder input
 
         spec_resized = spec_resized.repeat(1, 3, 1, 1)
 
         encoded_dist = self.vae.encode(spec_resized)
         latents = encoded_dist.latent_dist.sample()
-
+        print(latents.shape)
         return latents
 
     @torch.no_grad()

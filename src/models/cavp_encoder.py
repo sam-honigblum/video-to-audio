@@ -126,7 +126,7 @@ class CAVP_VideoOnly(nn.Module):
         state_dict = checkpoint["model"]
 
         # Load state dict with strict=False to handle any remaining mismatches
-        self.backbone.load_state_dict(state_dict, strict=False)
+        self.backbone.load_state_dict(state_dict, strict=False, weights_only=False)
         self.backbone.eval().requires_grad_(False)
 
     @torch.no_grad()

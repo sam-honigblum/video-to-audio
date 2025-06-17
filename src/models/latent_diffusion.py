@@ -60,7 +60,7 @@ class LatentDiffusion(nn.Module):
         # ----------------------------------------------------------------------------
         # 3. Small CNN to map (B,1,128,T) → (B, C, 1, W)
         # ----------------------------------------------------------------------------
-        self.latent_channels = self.first_stage.code_embed.embedding_dim
+        self.latent_channels = self.first_stage.latent_dim
         self.latent_width = latent_width
 
         # ----------------------------------------------------------------------------
@@ -147,6 +147,8 @@ class LatentDiffusion(nn.Module):
 
         if torch.rand(()) < self.guidance_prob:
             cond = torch.zeros_like(cond)
+
+        print(xt.shape, t.shape, cond.shape)
 
         # 4. Predict noise with UNet
         eps_hat = self.unet(xt, t, cond)
