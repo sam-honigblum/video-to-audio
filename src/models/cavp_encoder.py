@@ -42,7 +42,7 @@ class CAVP(nn.Module):
     def forward(self, video, spectrogram):
         """
         video: (B, C, T, H, W)
-        spectrogram: (B, 1, mel_num, T)
+        spectrogram: (B, 1, mel_num, T) or empty tensor for video-only mode
         """
         # video encode
         video_feat = self.video_encoder(video)
@@ -55,13 +55,24 @@ class CAVP(nn.Module):
         video_max = F.normalize(video_max, dim=-1)
         video_mean = F.normalize(video_mean, dim=-1)
 
-        # audio encode
-        spectrogram = spectrogram.permute(0, 1, 3, 2) # (B, 1, T, mel_num)
-        spectrogram_feat = self.audio_encoder(spectrogram) #(B, T, C)
-        spectrogram_max = self.audio_max_pool(spectrogram_feat.permute(0, 2, 1)).squeeze(-1)
-        spectrogram_mean = self.audio_mean_pool(spectrogram_feat.permute(0, 2, 1)).squeeze(-1)
-        spectrogram_max = F.normalize(spectrogram_max, dim=-1)
-        spectrogram_mean = F.normalize(spectrogram_mean, dim=-1)
+        # audio encode - handle empty spectrogram for video-only mode
+        if spectrogram.numel() == 0:
+            # Video-only mode: return dummy audio features
+            device = video.device
+            batch_size = video.size(0)
+            feat_dim = video_max.size(-1)  # Use same feature dimension as video
+            
+            # Create dummy audio features with same shape as video features
+            spectrogram_max = torch.zeros(batch_size, feat_dim, device=device)
+            spectrogram_mean = torch.zeros(batch_size, feat_dim, device=device)
+        else:
+            # Normal audio processing
+            spectrogram = spectrogram.permute(0, 1, 3, 2) # (B, 1, T, mel_num)
+            spectrogram_feat = self.audio_encoder(spectrogram) #(B, T, C)
+            spectrogram_max = self.audio_max_pool(spectrogram_feat.permute(0, 2, 1)).squeeze(-1)
+            spectrogram_mean = self.audio_mean_pool(spectrogram_feat.permute(0, 2, 1)).squeeze(-1)
+            spectrogram_max = F.normalize(spectrogram_max, dim=-1)
+            spectrogram_mean = F.normalize(spectrogram_mean, dim=-1)
 
         return video_max, video_mean, spectrogram_max, spectrogram_mean, self.logit_scale.exp()
 

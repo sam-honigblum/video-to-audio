@@ -38,35 +38,47 @@ class LatentDiffusion(nn.Module):
         super().__init__()
 
         # ----------------------------------------------------------------------------
-        # 1. Pre-compute β / ᾱ lookup tables FIRST
+        # 1. Initialize diffusion parameters and register buffers FIRST
         # ----------------------------------------------------------------------------
+        self.timesteps = timesteps
+        self.beta_start = beta_start
+        self.beta_end = beta_end
+        
+        # Create and register diffusion buffers
         betas = torch.linspace(beta_start, beta_end, timesteps, device=device)
         alphas = 1.0 - betas
-        alphas_cumprod = torch.cumprod(alphas, 0)
+        alphas_cumprod = torch.cumprod(alphas, dim=0)
+        
+        # Register all required buffers
+        self.register_buffer("betas", betas)
+        self.register_buffer("alphas", alphas)
         self.register_buffer("alphas_cumprod", alphas_cumprod)
-        self.register_buffer("sqrt_one_minus_alphas_cumprod", (1.0 - alphas_cumprod).sqrt())
-        self.register_buffer("sqrt_alphas_cumprod", alphas_cumprod.sqrt())
+        self.register_buffer("sqrt_alphas_cumprod", torch.sqrt(alphas_cumprod))
+        self.register_buffer("sqrt_one_minus_alphas_cumprod", torch.sqrt(1.0 - alphas_cumprod))
+        
+        # Validate buffer registration
+        if not hasattr(self, 'alphas_cumprod'):
+            raise RuntimeError("Failed to initialize alphas_cumprod buffer")
 
         # ----------------------------------------------------------------------------
-        # 2. Pre-trained audio codec (frozen)  +  frozen video encoder
+        # 2. Initialize model components
         # ----------------------------------------------------------------------------
+        # Pre-trained audio codec (frozen)
         self.first_stage = EncodecWrapper(target_sr=target_sr).to(device).eval()
-        self.cond_stage = video_encoder or VideoEncoder().to(device).eval()
         for p in self.first_stage.parameters():
             p.requires_grad = False
+
+        # Video encoder (frozen)
+        self.cond_stage = video_encoder or VideoEncoder().to(device).eval()
         for p in self.cond_stage.parameters():
             p.requires_grad = False
 
-        # ----------------------------------------------------------------------------
-        # 3. Small CNN to map (B,1,128,T) → (B, C, 1, W)
-        # ----------------------------------------------------------------------------
+        # Latent dimensions
         self.latent_channels = self.first_stage.code_embed.embedding_dim
         self.latent_width = latent_width
 
-        # This spec_encoder collapses 128 mel‐bins into latent_channels,
-        # then downsamples/pads time to exactly latent_width columns.
+        # Spectrogram encoder
         self.spec_encoder = nn.Sequential(
-            # Conv over mel‐bins: kernel (128,1) → "squeeze" mel dimension
             nn.Conv2d(
                 in_channels=1,
                 out_channels=self.latent_channels,
@@ -75,29 +87,21 @@ class LatentDiffusion(nn.Module):
                 padding=(0, 0),
             ),
             nn.ReLU(inplace=True),
-            # Now shape is (B, latent_channels, T), but in 2D conv format: (B, C, 1, T)
-            # Next: pad or interpolate along the W axis to exactly latent_width
             nn.Upsample(size=(1, self.latent_width), mode="bilinear", align_corners=False),
         )
 
-        # ----------------------------------------------------------------------------
-        # 4. Trainable UNet backbone
-        # ----------------------------------------------------------------------------
+        # UNet backbone
         self.unet = unet
 
         # ----------------------------------------------------------------------------
-        # 5. DDIM / DPM sampler wrapper (now alphas_cumprod is initialized)
+        # 3. Initialize sampler (now alphas_cumprod is properly registered)
         # ----------------------------------------------------------------------------
         self.sampler = DPMSolverSampler(self)
 
         # ----------------------------------------------------------------------------
-        # 6. Other hyperparams
+        # 4. Other hyperparameters
         # ----------------------------------------------------------------------------
         self.guidance_prob = guidance_prob
-
-        # Validate initialization
-        if not hasattr(self, 'alphas_cumprod'):
-            raise RuntimeError("Failed to initialize alphas_cumprod buffer")
 
     # =============================================================================
     #                           helper methods
@@ -144,14 +148,10 @@ class LatentDiffusion(nn.Module):
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         """
         Inverse of encode() when input was raw waveform.
-        If `z` came from a mel‐encoded, this decode is undefined (you'd need a separate decoder).
+        If `z` came from a mel‐encoder, this decode is undefined (you'd need a separate decoder).
         """
         z = z.squeeze(2)  # (B, C, W)
         return self.first_stage.decode(z)
-
-    # =============================================================================
-    #                         training forward pass
-    # =============================================================================
 
     def q_sample(self, x_start: torch.Tensor, t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -184,6 +184,10 @@ class LatentDiffusion(nn.Module):
         x_t = sqrt_alphas_cumprod_t * x_start + sqrt_one_minus_alphas_cumprod_t * noise
         
         return x_t, noise
+
+    # =============================================================================
+    #                         training forward pass
+    # =============================================================================
 
     def forward(self, x, video):
         """

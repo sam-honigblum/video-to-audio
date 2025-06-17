@@ -37,19 +37,23 @@ The checkpoint was saved with an older version of the model architecture where t
 - The alphas_cumprod buffer is not properly initialized before being accessed
 
 ## Root Cause
-The DPMSolverSampler is trying to access alphas_cumprod before it's fully initialized in the LatentDiffusion class. The initialization order needs to be fixed.
+1. The alphas_cumprod buffer is not being properly registered in the LatentDiffusion class
+2. The initialization order in LatentDiffusion needs to be fixed
+3. The buffer registration needs to be done before any other components try to access it
 
 ## Solution Implemented
-1. Modified LatentDiffusion class initialization order:
-   - Move the alphas_cumprod initialization before the sampler creation
-   - Ensure all diffusion parameters are properly registered as buffers
-   - Add error checking for required attributes
+1. Modified LatentDiffusion class initialization:
+   - Added proper buffer registration for all diffusion parameters
+   - Ensured buffers are registered before any component initialization
+   - Added validation checks for required attributes
+   - Fixed the initialization order to match the diffusers library requirements
 
 ## Files Modified
 1. src/models/latent_diffusion.py
-   - Reordered initialization sequence
+   - Updated initialization sequence
    - Added proper buffer registration
    - Added validation checks
+   - Ensured compatibility with DPMSolverSampler requirements
 
 ## Next Steps
 1. Test the modified code
@@ -86,5 +90,37 @@ The DPMSolverSampler is trying to access alphas_cumprod before it's fully initia
 1. Test the modified code
 2. Verify that training proceeds correctly
 3. Monitor for any remaining issues
+
+------------------------------------------------------------------------------------------------------------------------------s
+
+# Debug Log 4: CAVP Encoder Empty Tensor Issue
+
+## Issue Description
+- Error: RuntimeError: permute(sparse_coo): number of dimensions in the tensor input does not match the length of the desired ordering of dimensions
+- The error occurs in CAVP forward method when trying to permute an empty tensor
+- The CAVP_VideoOnly class is passing torch.empty(0) as spectrogram input, but the forward method expects a 4D tensor
+
+## Root Cause
+1. The CAVP_VideoOnly forward method passes torch.empty(0) as the spectrogram input to simulate video-only processing
+2. The CAVP.forward method tries to permute this empty tensor as if it were a 4D spectrogram tensor
+3. The permute operation fails because the empty tensor has 1 dimension, not 4
+
+## Solution Implemented
+1. Modified CAVP.forward method to handle empty spectrogram input:
+   - Added check for empty spectrogram tensor
+   - Skip audio processing when spectrogram is empty
+   - Return appropriate dummy values for audio features
+   - Maintain video processing functionality
+
+## Files Modified
+1. src/models/cavp_encoder.py
+   - Updated CAVP.forward method to handle empty spectrogram input
+   - Added conditional processing for video-only mode
+   - Ensured proper return values for both video and audio features
+
+## Next Steps
+1. Test the modified code
+2. Verify that video processing works correctly in video-only mode
+3. Monitor for any remaining tensor shape issues
 
 ------------------------------------------------------------------------------------------------------------------------------s
