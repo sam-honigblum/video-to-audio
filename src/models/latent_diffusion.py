@@ -50,7 +50,7 @@ class LatentDiffusion(nn.Module):
         # ----------------------------------------------------------------------------
         # 2. Pre-trained audio codec (frozen)  +  frozen video encoder
         # ----------------------------------------------------------------------------
-        self.first_stage = EncodecWrapper(target_sr=target_sr).to(device).eval()
+        self.first_stage = EncodecWrapper().to(device) #need to finetune
         self.cond_stage = video_encoder or VideoEncoder().to(device).eval()
         for p in self.first_stage.parameters():
             p.requires_grad = False
@@ -185,7 +185,7 @@ class LatentDiffusion(nn.Module):
         xt, eps = self.q_sample(z0, t)
 
         # 3. Condition on video
-        cond = self.cond_stage(video)     # (B, 40, 512) or whatever your VideoEncoder outputs
+        cond = self.cond_stage(video, x)     # (B, 40, 512) or whatever your VideoEncoder outputs
         if torch.rand(()) < self.guidance_prob:
             cond = torch.zeros_like(cond)
 

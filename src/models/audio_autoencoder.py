@@ -5,69 +5,70 @@
 from typing import List
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+from diffusers.models.autoencoders.autoencoder_kl import AutoencoderKL
 
 class EncodecWrapper(nn.Module):
     """
     Wraps Meta's pretrained EnCodec neural codec so it looks like the
     AutoencoderKL planned for Diff-Foley.  The weights are loaded once and
     frozen; gradients flow only through the small projection layers.
+
+    We are now using stable diffusion v1.4 autoencoderkl vae
+    repeat along channel dimension to simeulate img dimension
+    and then avg along that dimension when dedcoding
+    -Arnold
     """
 
     def __init__(
         self,
-        codebook_dim: int = 8,    # how many codebooks to concatenate
-        target_sr: int = 24000,   # 16000, 24000, or 48000 supported
+        mel_bins: int = 128,
+        T: int = 641,
         device: str = "cuda",
     ):
         super().__init__()
         # ---- 1. load and freeze the codec -----------------------------------
-        from audiocraft.models import CompressionModel
-        ckpt_name = f"hance-ai/descript-audio-codec-{target_sr // 1000}khz"
-        self.codec = CompressionModel.get_pretrained(ckpt_name).to(device)
-        self.codec.eval().requires_grad_(False)
+        self.vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae").to(device)
 
-        # ---- 2. tiny trainable projection  ----------------------------------
-        #    EnCodec returns a list of `codebook_dim` discrete codes per frame.
-        #    We embed them and stack into a latent tensor (B, C=codebook_dim, T')
-        vocab_size = self.codec.total_codebooks
-        self.code_embed = nn.Embedding(vocab_size, codebook_dim)
+        self.mel_bins = mel_bins
+        self.T = T
 
     # -------------------------------------------------------------------------
     # Public API identical to your planned AutoencoderKL
     # -------------------------------------------------------------------------
     @torch.no_grad()
-    def encode(self, wav: torch.Tensor) -> torch.Tensor:
+    def encode(self, spec) -> torch.Tensor:
         """
-        Args
-        ----
-        wav : (B, T) or (B, 1, T) waveform in [-1, 1] at `target_sr`
-        Returns
-        -------
-        latents : (B, codebook_dim, T') float tensor for the UNet
+        args:
+            spec (B, 1, mel_bins, T)
+        return:
+            latents (B, 4, latent_dim, latent_dim)
         """
-        if wav.dim() == 2:
-            wav = wav.unsqueeze(1)                # (B, 1, T)
-        codes: List[torch.Tensor] = self.codec.encode(wav)[0]  # list[len=T'] (B,) ints
-        codes = torch.stack(codes, dim=-1)        # (B, T', n_codebooks)
-        # We only keep the first quantizer to match `codebook_dim`
-        latents = self.code_embed(codes[..., 0])  # (B, T', codebook_dim)
-        latents = latents.permute(0, 2, 1)        # (B, C, T')
-        return latents.contiguous()
+        self.mel_bins = spec.shape[-2]
+        self.T = spec.shape[-1]
+
+        spec_resized = F.interpolate(spec, size=(256, 256), mode="bilinear") #resize into 256x256 for vae encoder input
+
+        spec_resized = spec_resized.repeat(1, 3, 1, 1)
+
+        encoded_dist = self.vae.encode(spec_resized)
+        latents = encoded_dist.latent_dist.sample()
+
+        return latents
 
     @torch.no_grad()
     def decode(self, latents: torch.Tensor) -> torch.Tensor:
         """
-        Inverse of `encode`.  We pick the nearest code in the embedding space
-        and feed it to EnCodec's decoder.
+        args:
+            latents (B, 4, latent_dim, latent_dim)
+        returns:
+            spec (B, 1, mel_bins, T) ~ these are log mel spectrograms -> need to de-log and convert into wav afterwards
         """
-        # (B, C, T') → (B, T', C)
-        latents = latents.permute(0, 2, 1)
-        # cosine distance to every codebook vector
-        codes = torch.cdist(
-            latents.float(), self.code_embed.weight.float()[None, None]
-        ).argmin(-1)                               # (B, T')
-        # EnCodec expects a list of length n_q where each item is (B, T')
-        codes = [codes] + [codes.new_zeros(codes.shape)  # dummy for unused books
-                           for _ in range(len(self.codec.quantizers) - 1)]
-        wav = self.codec.decode(codes, None)       # (B, 1, T)
-        return wav.squeeze(1)                      # (B, T)
+        decoded = self.vae.decode(latents).sample
+
+        decoded = torch.mean(decoded, dim=1, keepdim=True)
+
+        spec = F.interpolate(decoded, size=(self.mel_bins, self.T), mode="bilinear")
+
+        return spec

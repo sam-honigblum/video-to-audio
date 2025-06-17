@@ -164,11 +164,7 @@ def train_loop(cfg: OmegaConf) -> None:
             spec  = batch["audio"].to(device)
             video = batch["video"].to(device)
 
-            # Convert mel-spectrogram → waveform (inverse mel) if needed:
-            # here, we assume EncodecWrapper accepts waveform; if not, you must
-            # invert spectrogram to waveform before passing to LDM:
-            # wav = some_inverse_mel_function(spec)  # (B, T)
-            # For simplicity, assume spectrogram is fine—so skip encoding step.
+            #new audio encoder accepts spec
 
             loss = ldm(spec, video)
             optimiser.zero_grad()
