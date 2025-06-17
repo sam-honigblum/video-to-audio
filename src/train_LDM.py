@@ -111,8 +111,8 @@ def train_loop(cfg: OmegaConf) -> None:
     )
 
     # 2 ─ Models (codec + video encoder are frozen internally)
-    codec = EncodecWrapper(target_sr=cfg.audio.sample_rate).to(device).eval()
-    latent_channels = codec.code_embed.embedding_dim  # usually 8
+    codec = EncodecWrapper().to(device).eval()
+    latent_channels = codec.latent_dim
 
     unet = build_unet(
         in_channels    = latent_channels,
@@ -125,6 +125,7 @@ def train_loop(cfg: OmegaConf) -> None:
     cavp = CAVP_VideoOnly(cfg.cavp.checkpoint).to(device)
 
     ldm = LatentDiffusion(
+        codec         = codec,
         unet          = unet,
         video_encoder = cavp,
         timesteps     = cfg.diffusion.timesteps,

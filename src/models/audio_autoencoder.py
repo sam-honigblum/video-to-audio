@@ -25,14 +25,17 @@ class EncodecWrapper(nn.Module):
         self,
         mel_bins: int = 128,
         T: int = 641,
+        latent_dim: int = 64,
         device: str = "cuda",
     ):
         super().__init__()
         # ---- 1. load and freeze the codec -----------------------------------
         self.vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae").to(device)
+        self.vae.eval().requires_grad_(False)
 
         self.mel_bins = mel_bins
         self.T = T
+        self.latent_dim = latent_dim
 
     # -------------------------------------------------------------------------
     # Public API identical to your planned AutoencoderKL

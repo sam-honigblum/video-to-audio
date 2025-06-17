@@ -1,7 +1,7 @@
 numpy<2.0.0
-torch==2.1.0
-torchvision==0.16.0
-torchaudio==2.1.0
+torch==2.5.0
+torchvision==0.20.0
+torchaudio==2.5.0
 huggingface-hub==0.33.0
 diffusers==0.33.1
 transformers==4.52.4
@@ -15,9 +15,8 @@ ffmpeg-python==0.2.0
 torchlibrosa>=0.1.0
 tqdm>=4.65.0 #needed for training loop
 
-# -f https://data.pyg.org/whl/torch-2.1.0+121.html # just directly run this in colab, it prob be faster
-# torch-scatter==2.1.2
-# torch-sparse==0.6.18
+torch-scatter
+torch-sparse
 
 -f https://download.openmmlab.com/mmcv/dist/cu121/torch2.1.0/index.html
 mmcv
