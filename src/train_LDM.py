@@ -176,7 +176,7 @@ def train_loop(cfg: OmegaConf) -> None:
                 optimiser.step()
                 ema.update(ldm.unet)
 
-                pbar.set_description(loss=loss.item())
+                pbar.set_description(f"loss={loss.item():.4f}")
                 pbar.update(1)
                 print(" ")
 
