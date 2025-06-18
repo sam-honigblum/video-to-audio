@@ -32,7 +32,7 @@ optim:
   ema_decay: 0.9999
 
 training:
-  ckpt_dir: "content/drive/MyDrive/MMML_Project/checkpoints/ldm/a100-arnold"
+  ckpt_dir: "/content/drive/MyDrive/MMML_Project/checkpoints/ldm/a100-arnold"
   total_steps: 10_000
   ckpt_every: 500
 
