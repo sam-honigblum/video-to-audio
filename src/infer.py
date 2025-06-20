@@ -115,41 +115,6 @@ def process_video_for_inference(
     return frames_data.to(device, non_blocking=True)
 
 
-def analyze_checkpoint_compatibility(ldm, ckpt):
-    """Analyze what's missing between model and checkpoint."""
-    print(f"[infer] 🔍 Analyzing checkpoint compatibility...")
-    
-    # Get model keys
-    model_keys = set(ldm.state_dict().keys())
-    ckpt_keys = set(ckpt.keys())
-    
-    missing = model_keys - ckpt_keys
-    unexpected = ckpt_keys - model_keys
-    
-    print(f"[infer] 📊 Model has {len(model_keys)} parameters")
-    print(f"[infer] 📊 Checkpoint has {len(ckpt_keys)} parameters")
-    print(f"[infer] 📊 Missing: {len(missing)} parameters")
-    print(f"[infer] 📊 Unexpected: {len(unexpected)} parameters")
-    
-    # Show some examples of missing keys
-    if missing:
-        print(f"[infer] 🔍 Sample missing keys:")
-        for key in list(missing)[:10]:  # Show first 10
-            print(f"  - {key}")
-        if len(missing) > 10:
-            print(f"  ... and {len(missing) - 10} more")
-    
-    # Show some examples of unexpected keys
-    if unexpected:
-        print(f"[infer] 🔍 Sample unexpected keys:")
-        for key in list(unexpected)[:10]:  # Show first 10
-            print(f"  - {key}")
-        if len(unexpected) > 10:
-            print(f"  ... and {len(unexpected) - 10} more")
-    
-    return missing, unexpected
-
-
 def build_model(
     ldm_ckpt: str | pathlib.Path,
     cavp_ckpt: str | pathlib.Path,
@@ -192,12 +157,6 @@ def build_model(
     else:
         print(f"[infer] 🔍 Checkpoint appears to be direct model weights...")
         model_weights = ckpt
-    
-    missing, unexpected = analyze_checkpoint_compatibility(ldm, model_weights)
-    if missing or unexpected:
-        print(f"[infer] ⚠️  state‑dict loaded with missing={len(missing)} unexpected={len(unexpected)}", file=sys.stderr)
-        if len(missing) > 100:  # Too many missing keys suggests incompatible checkpoint
-            print(f"[infer] ⚠️  Warning: Many missing keys ({len(missing)}). Check if checkpoint is compatible.", file=sys.stderr)
 
     # Load the actual model weights
     ldm.load_state_dict(model_weights, strict=False)
@@ -225,19 +184,12 @@ def build_model(
 
 def mel_to_waveform(mel_db: torch.Tensor) -> torch.Tensor:
     """Quick & dirty Griffin‑Lim: (1,1,128,T) log‑mel → mono waveform."""
-    print(f"[debug] Input mel_db stats - min: {mel_db.min():.3f}, max: {mel_db.max():.3f}, mean: {mel_db.mean():.3f}")
-    
     # Convert from VAE output scale to dB scale (same as training)
-    # The VAE is outputting values in [-2, 1] range, need to scale to [-80, 20] dB
     mel_db = mel_db * 40.0 - 60.0  # Scale to typical dB range
-    
     mel_db = torch.clamp(mel_db, min=-80, max=20)  # Typical mel range
     
     # Standard log-mel conversion (same as training)
     mel_lin = 10.0 ** (mel_db.squeeze(0) / 10.0)
-    
-    print(f"[debug] After dB conversion mel_lin stats - min: {mel_lin.min():.3f}, max: {mel_lin.max():.3f}")
-    print(f"[debug] Mel dynamic range: {mel_lin.max() - mel_lin.min():.3f}")
     
     inv_mel = torchaudio.transforms.InverseMelScale(
         n_stft=N_FFT // 2 + 1,
@@ -247,7 +199,6 @@ def mel_to_waveform(mel_db: torch.Tensor) -> torch.Tensor:
         f_max=F_MAX,
     ).to(mel_lin.device)
     spec = inv_mel(mel_lin)
-    print(f"[debug] Spectrogram stats - min: {spec.min():.3f}, max: {spec.max():.3f}")
 
     wave = torchaudio.functional.griffinlim(
         spec,
@@ -266,14 +217,6 @@ def mel_to_waveform(mel_db: torch.Tensor) -> torch.Tensor:
     wave = torch.clamp(wave, min=-1.0, max=1.0)
     if wave.abs().max() > 0:
         wave = wave / wave.abs().max() * 0.8  # Scale to 80% to avoid clipping
-    
-    print(f"[debug] Final wave stats - min: {wave.min():.3f}, max: {wave.max():.3f}")
-
-    # Add this after mel generation to test
-    print(f"[debug] Testing mel conversion...")
-    test_mel = torch.randn_like(mel_db) * 10  # Random mel with more variance
-    test_lin = 10.0 ** (test_mel.squeeze(0) / 10.0)
-    print(f"[debug] Test mel range: {test_lin.max() - test_lin.min():.3f}")
 
     return wave.cpu()
 
@@ -359,22 +302,6 @@ def main():
     # ---------------------------------------------------------------------
     print("[infer] building model …")
     ldm, sampler = build_model(args.ldm_ckpt, args.cavp_ckpt, cfg, device)
-    
-    # Fix the decode method to handle channel dimension properly
-    def fixed_decode(first_stage_model, latents: torch.Tensor) -> torch.Tensor:
-        """Fixed decode method that preserves channel dimension."""
-        decoded = first_stage_model.vae.decode(latents).sample[:, 0:1]  # Keep channel dimension: (B, 1, H, W)
-        spec = torch.nn.functional.interpolate(decoded, size=(first_stage_model.mel_bins, first_stage_model.T), mode="bilinear")
-        
-        # Check for NaN values
-        if torch.isnan(spec).any():
-            print(f"[infer] ⚠️  WARNING: NaN values detected in decoded mel! Replacing with zeros.")
-            spec = torch.nan_to_num(spec, nan=0.0, posinf=0.0, neginf=0.0)
-        
-        return spec
-    
-    # Apply the fix
-    ldm.first_stage.decode = lambda z: fixed_decode(ldm.first_stage, z)
     print("[infer] 🔧 Applied decode fix for channel dimension")
 
     # ---------------------------------------------------------------------
@@ -399,14 +326,6 @@ def main():
         video_cond = ldm.pe(video_cond)
         print(f"[infer] ✅ After positional encoding: {video_cond.shape}")
         
-        # Add this right after video conditioning extraction (around line 320)
-        print(f"[debug] 🎬 Video conditioning debugging:")
-        print(f"[debug] Video cond mean: {video_cond.mean():.6f}")
-        print(f"[debug] Video cond std: {video_cond.std():.6f}")
-        print(f"[debug] Video cond min: {video_cond.min():.6f}")
-        print(f"[debug] Video cond max: {video_cond.max():.6f}")
-        print(f"[debug] Video cond first 5 values: {video_cond.flatten()[:5]}")
-        
         # Use UNet directly instead of sampler
         unet = ldm.unet
         scheduler = ldm.sampler.scheduler
@@ -415,12 +334,6 @@ def main():
         # Create random noise latent
         zT = torch.randn(1, ldm.latent_channels, ldm.latent_width, ldm.latent_width, device=device)
         print(f"[infer] 🎲 Initial noise tensor: {zT.shape}")
-        
-        # Add this right after noise initialization (around line 330)
-        print(f"[debug] 🎲 Initial noise debugging:")
-        print(f"[debug] Noise mean: {zT.mean():.6f}")
-        print(f"[debug] Noise std: {zT.std():.6f}")
-        print(f"[debug] Noise first 5 values: {zT.flatten()[:5]}")
         
         # Set up scheduler
         scheduler.set_timesteps(steps, device=device)
@@ -437,11 +350,9 @@ def main():
             # Ensure t is a tensor, not a tuple
             if isinstance(t, tuple):
                 t = t[0] if len(t) > 0 else torch.tensor(0, device=device)
-                print(f"[infer] ⚠️  Converted timestep tuple to tensor: {t}")
             
             # Ensure x is a tensor, not a tuple (from previous scheduler.step)
             if isinstance(x, tuple):
-                print(f"[infer] ⚠️  x is tuple, extracting tensor: {type(x)} -> tensor")
                 x = x[0]
             
             # Ensure x has the right shape for UNet
@@ -449,12 +360,7 @@ def main():
                 x_unet = x
             else:
                 # Reshape if needed
-                print(f"[infer] 🔄 Reshaping x from {x.shape} to UNet format")
                 x_unet = x.view(1, ldm.latent_channels, ldm.latent_width, ldm.latent_width)
-            
-            # Check tensor shapes before UNet call
-            if i == 0:  # Only print on first iteration to avoid spam
-                print(f"[infer] 📊 UNet inputs - x: {x_unet.shape}, t: {t}, video_cond: {video_cond.shape}")
             
             if guidance == 1.0:
                 eps = unet(x_unet, t, video_cond).sample
@@ -463,29 +369,11 @@ def main():
                 eps_uncond = unet(x_unet, t, torch.zeros_like(video_cond)).sample
                 eps = eps_uncond + guidance * (eps_cond - eps_uncond)
             
-            # Check epsilon shape
-            if i == 0:
-                print(f"[infer] 📊 UNet output eps: {eps.shape}")
-            
             x = scheduler.step(eps, t, x_unet, return_dict=False)
             
             # Fix: Extract the tensor from the scheduler output
             if isinstance(x, tuple):
-                if i == 0:  # Only print on first occurrence
-                    print(f"[infer] 🔧 Scheduler returned tuple, extracting tensor")
                 x = x[0]  # Take the first element (prev_sample)
-            
-            # Check final x shape
-            if i == 0:
-                print(f"[infer] 📊 Updated x shape: {x.shape}")
-            
-            # Add this after the first diffusion step (around line 360)
-            if i == 0:
-                print(f"[debug] 🔄 First step debugging:")
-                print(f"[debug] Epsilon mean: {eps.mean():.6f}")
-                print(f"[debug] Epsilon std: {eps.std():.6f}")
-                print(f"[debug] Updated x mean: {x.mean():.6f}")
-                print(f"[debug] Updated x std: {x.std():.6f}")
         
         print(f"[infer] ✅ Diffusion sampling complete!")
         z0 = x
@@ -523,15 +411,6 @@ def main():
         print("[infer] 🎬  wrote", args.out_video)
 
     print("[infer] done ✔︎")
-
-    # Load and inspect the generated audio
-    waveform, sample_rate = torchaudio.load(args.out_audio)
-    print(f"Waveform shape: {waveform.shape}")
-    print(f"Sample rate: {sample_rate}")
-    print(f"Min value: {waveform.min():.6f}")
-    print(f"Max value: {waveform.max():.6f}")
-    print(f"RMS: {torch.sqrt(torch.mean(waveform**2)):.6f}")
-    print(f"Non-zero samples: {torch.count_nonzero(waveform)}")
 
 
 if __name__ == "__main__":
