@@ -293,6 +293,10 @@ def main():
             if isinstance(t, tuple):
                 t = t[0] if len(t) > 0 else torch.tensor(0, device=device)
             
+            # Ensure x is a tensor, not a tuple (from previous scheduler.step)
+            if isinstance(x, tuple):
+                x = x[0]
+            
             # Ensure x has the right shape for UNet
             if x.dim() == 4:  # (B, C, H, W)
                 x_unet = x
@@ -308,6 +312,10 @@ def main():
                 eps = eps_uncond + guidance * (eps_cond - eps_uncond)
             
             x = scheduler.step(eps, t, x, return_dict=False)
+            
+            # Fix: Extract the tensor from the scheduler output
+            if isinstance(x, tuple):
+                x = x[0]  # Take the first element (prev_sample)
         
         z0 = x
         mel_db = ldm.decode(z0)
