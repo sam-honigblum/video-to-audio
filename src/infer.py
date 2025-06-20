@@ -87,6 +87,23 @@ def process_video_for_inference(
         print(f"[infer] ❌ Failed to load video: {e}")
         print(f"[infer] 💡 Supported formats: .mp4, .avi, .mov, .mkv")
         print(f"[infer] 📁 File path: {video_path.absolute()}")
+        print(f"[infer] 📁 Video path type: {type(video_path)}")
+        print(f"[infer] 📁 Video path string: '{str(video_path)}'")
+        
+        # Try alternative video loading if torchvision fails
+        try:
+            import cv2
+            print(f"[infer] 🔄 Trying OpenCV fallback...")
+            cap = cv2.VideoCapture(str(video_path))
+            if not cap.isOpened():
+                raise ValueError(f"OpenCV couldn't open video: {video_path}")
+            cap.release()
+            print(f"[infer] ✅ OpenCV can read the video")
+        except ImportError:
+            print(f"[infer] ⚠️  OpenCV not available for fallback")
+        except Exception as cv_error:
+            print(f"[infer] ❌ OpenCV also failed: {cv_error}")
+        
         raise
     
     if frames_data.shape[0] == 0:
