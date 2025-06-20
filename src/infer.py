@@ -288,12 +288,23 @@ def main():
         x = zT
         
         # Run diffusion steps
-        for t in scheduler.timesteps:
-            if guidance == 1.0:
-                eps = unet(x, t, video_cond).sample
+        for i, t in enumerate(scheduler.timesteps):
+            # Ensure t is a tensor, not a tuple
+            if isinstance(t, tuple):
+                t = t[0] if len(t) > 0 else torch.tensor(0, device=device)
+            
+            # Ensure x has the right shape for UNet
+            if x.dim() == 4:  # (B, C, H, W)
+                x_unet = x
             else:
-                eps_cond = unet(x, t, video_cond).sample
-                eps_uncond = unet(x, t, torch.zeros_like(video_cond)).sample
+                # Reshape if needed
+                x_unet = x.view(1, ldm.latent_channels, ldm.latent_width, ldm.latent_width)
+            
+            if guidance == 1.0:
+                eps = unet(x_unet, t, video_cond).sample
+            else:
+                eps_cond = unet(x_unet, t, video_cond).sample
+                eps_uncond = unet(x_unet, t, torch.zeros_like(video_cond)).sample
                 eps = eps_uncond + guidance * (eps_cond - eps_uncond)
             
             x = scheduler.step(eps, t, x, return_dict=False)
