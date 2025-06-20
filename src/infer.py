@@ -56,6 +56,7 @@ from utils.dataset import (
     TARGET_FPS,
     TARGET_SIZE,
     FIXED_NUM_FRAMES,
+    VidSpectroDataset,
 )
 
 # ---------------------------------------------------------------------------
@@ -66,45 +67,43 @@ def get_project_root() -> pathlib.Path:
     """Get the project root directory (parent of src/)."""
     return pathlib.Path(__file__).parent.parent
 
-def video_to_tensor(
-    path: str | pathlib.Path,
-    fps: int = TARGET_FPS,
-    frames: int = FIXED_NUM_FRAMES,
-    size: int = TARGET_SIZE,
+def process_video_for_inference(
+    video_path: str | pathlib.Path,
     device: torch.device | str = "cpu",
 ) -> torch.Tensor:
-    """Load video using the same logic as VidSpectroDataset.gen_vid()."""
+    """Process video using the same logic as VidSpectroDataset.gen_vid()."""
     
     # Check if file exists
-    path = pathlib.Path(path)
-    if not path.exists():
-        raise FileNotFoundError(f"Video file not found: {path.absolute()}")
+    video_path = pathlib.Path(video_path)
+    if not video_path.exists():
+        raise FileNotFoundError(f"Video file not found: {video_path.absolute()}")
     
-    print(f"[infer] 📹 Loading video: {path}")
+    print(f"[infer] 📹 Loading video: {video_path}")
     
     try:
-        frames_data, _, meta = read_video(str(path), pts_unit="sec")  # (T,H,W,C) uint8 CPU
+        # Use the same logic as dataset.py gen_vid()
+        frames_data, _, meta = read_video(str(video_path), pts_unit="sec")
     except Exception as e:
         print(f"[infer] ❌ Failed to load video: {e}")
         print(f"[infer] 💡 Supported formats: .mp4, .avi, .mov, .mkv")
-        print(f"[infer] 📁 File path: {path.absolute()}")
+        print(f"[infer] 📁 File path: {video_path.absolute()}")
         raise
     
     if frames_data.shape[0] == 0:
-        raise ValueError(f"Video file contains no frames: {path}")
+        raise ValueError(f"Video file contains no frames: {video_path}")
     
     print(f"[infer] 📊 Video info: {frames_data.shape[0]} frames, {frames_data.shape[1:3]} resolution")
     
     # Use the same logic as dataset.py gen_vid()
     T = frames_data.shape[0]
-    idxs = torch.linspace(0, T - 1, frames, dtype=torch.int)
+    idxs = torch.linspace(0, T - 1, FIXED_NUM_FRAMES, dtype=torch.int)
     frames_data = frames_data[idxs]
 
     # Resize spatially and scale to [0, 1]
     frames_data = (
         torch.nn.functional.interpolate(
             frames_data.permute(0, 3, 1, 2).float(),       # (T, C, H, W)
-            size=size,
+            size=TARGET_SIZE,
             mode="bilinear",
             align_corners=False,
         ) / 255.0
@@ -265,13 +264,7 @@ def main():
 
     # ---------------------------------------------------------------------
     print("[infer] encoding video …")
-    frames = video_to_tensor(
-        args.video, 
-        fps=cfg.data.fps,
-        frames=cfg.data.fixed_num_frames,
-        size=cfg.data.target_size,
-        device=device
-    )
+    frames = process_video_for_inference(args.video, device=device)
 
     # ---------------------------------------------------------------------
     print(f"[infer] sampling {args.seconds}s / {steps} steps  (CFG={guidance}) …")
