@@ -115,6 +115,41 @@ def process_video_for_inference(
     return frames_data.to(device, non_blocking=True)
 
 
+def analyze_checkpoint_compatibility(ldm, ckpt):
+    """Analyze what's missing between model and checkpoint."""
+    print(f"[infer] 🔍 Analyzing checkpoint compatibility...")
+    
+    # Get model keys
+    model_keys = set(ldm.state_dict().keys())
+    ckpt_keys = set(ckpt.keys())
+    
+    missing = model_keys - ckpt_keys
+    unexpected = ckpt_keys - model_keys
+    
+    print(f"[infer] 📊 Model has {len(model_keys)} parameters")
+    print(f"[infer] 📊 Checkpoint has {len(ckpt_keys)} parameters")
+    print(f"[infer] 📊 Missing: {len(missing)} parameters")
+    print(f"[infer] 📊 Unexpected: {len(unexpected)} parameters")
+    
+    # Show some examples of missing keys
+    if missing:
+        print(f"[infer] 🔍 Sample missing keys:")
+        for key in list(missing)[:10]:  # Show first 10
+            print(f"  - {key}")
+        if len(missing) > 10:
+            print(f"  ... and {len(missing) - 10} more")
+    
+    # Show some examples of unexpected keys
+    if unexpected:
+        print(f"[infer] 🔍 Sample unexpected keys:")
+        for key in list(unexpected)[:10]:  # Show first 10
+            print(f"  - {key}")
+        if len(unexpected) > 10:
+            print(f"  ... and {len(unexpected) - 10} more")
+    
+    return missing, unexpected
+
+
 def build_model(
     ldm_ckpt: str | pathlib.Path,
     cavp_ckpt: str | pathlib.Path,
@@ -147,7 +182,7 @@ def build_model(
     ).to(device)
 
     ckpt = torch.load(ldm_ckpt, map_location="cpu", weights_only=False)
-    missing, unexpected = ldm.load_state_dict(ckpt, strict=False)
+    missing, unexpected = analyze_checkpoint_compatibility(ldm, ckpt)
     if missing or unexpected:
         print(f"[infer] ⚠️  state‑dict loaded with missing={len(missing)} unexpected={len(unexpected)}", file=sys.stderr)
         if len(missing) > 100:  # Too many missing keys suggests incompatible checkpoint
