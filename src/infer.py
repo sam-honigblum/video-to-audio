@@ -52,6 +52,9 @@ from utils.dataset import (
     HOP_LENGTH,
     N_FFT,
     SAMPLE_RATE,
+    TARGET_FPS,
+    TARGET_SIZE,
+    FIXED_NUM_FRAMES,
 )
 
 # ---------------------------------------------------------------------------
@@ -60,25 +63,33 @@ from utils.dataset import (
 
 def video_to_tensor(
     path: str | pathlib.Path,
-    fps: int = 4,
-    frames: int = 40,
-    size: int = 224,
+    fps: int = TARGET_FPS,
+    frames: int = FIXED_NUM_FRAMES,
+    size: int = TARGET_SIZE,
     device: torch.device | str = "cpu",
 ) -> torch.Tensor:
-    """Load an arbitrary short clip and spit out (1,3,T,H,W) *float32* in [0,1]."""
+    """Load video using the same logic as VidSpectroDataset.gen_vid()."""
+    
+    frames_data, _, meta = read_video(str(path), pts_unit="sec")  # (T,H,W,C) uint8 CPU
+    
+    # Use the same logic as dataset.py gen_vid()
+    T = frames_data.shape[0]
+    idxs = torch.linspace(0, T - 1, frames, dtype=torch.int)
+    frames_data = frames_data[idxs]
 
-    vid, _, meta = read_video(str(path), pts_unit="sec")  # (T,H,W,C) uint8 CPU
-    stride = max(1, int(meta["video_fps"] // fps)) if meta.get("video_fps") else 1
-    vid = vid[::stride][:frames]
+    # Resize spatially and scale to [0, 1]
+    frames_data = (
+        torch.nn.functional.interpolate(
+            frames_data.permute(0, 3, 1, 2).float(),       # (T, C, H, W)
+            size=size,
+            mode="bilinear",
+            align_corners=False,
+        ) / 255.0
+    )
 
-    # left‑pad if shorter than the fixed training length
-    if vid.shape[0] < frames:
-        pad = torch.zeros(frames - vid.shape[0], *vid.shape[1:], dtype=vid.dtype)
-        vid = torch.cat([vid, pad])
-
-    vid = TF.resize(vid.permute(0, 3, 1, 2), size) / 255.0  # (T,3,H,W)
-    vid = vid.permute(1, 0, 2, 3).unsqueeze(0)  # (1,3,T,H,W)
-    return vid.to(device, non_blocking=True)
+    # Reorder to (C, T, H, W) and add batch dimension
+    frames_data = frames_data.permute(1, 0, 2, 3).unsqueeze(0)  # (1, C, T, H, W)
+    return frames_data.to(device, non_blocking=True)
 
 
 def build_model(
@@ -87,7 +98,7 @@ def build_model(
     cfg: "OmegaConf | dict",
     device: torch.device | str,
 ) -> Tuple[LatentDiffusion, DPMSolverSampler]:
-    """Create EnCodec, CAVP, UNet stack and load weights."""
+    """Create EnCodec, CAVP, UNet stack and load weights using existing build_unet."""
 
     device = torch.device(device)
 
@@ -95,19 +106,19 @@ def build_model(
     cavp = CAVP_VideoOnly(str(cavp_ckpt)).to(device).eval()
 
     unet = build_unet(
-        in_channels=codec.latent_dim,
-        model_channels=256,
-        latent_w=64,
-        cross_attn_dim=512,
+        in_channels=cfg.model.latent_channels,
+        model_channels=cfg.model.base_width,
+        latent_w=cfg.data.latent_width,
+        cross_attn_dim=cfg.model.cross_attention_dim,
     ).to(device)
 
     ldm = LatentDiffusion(
         codec=codec,
         unet=unet,
         cavp=cavp,
-        timesteps=1000,
-        beta_start=1e-4,
-        beta_end=2e-2,
+        timesteps=cfg.diffusion.timesteps,
+        beta_start=cfg.diffusion.beta_start,
+        beta_end=cfg.diffusion.beta_end,
         guidance_prob=0.0,
         device=device,
     ).to(device)
@@ -161,10 +172,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--out_video", type=str, default="foley_out.mp4", help="muxed output video (only if --mux)")
 
     # generation params
-    p.add_argument("--config", type=str, default="configs/infer.yaml", help="YAML with defaults for steps/cfg_scale")
+    p.add_argument("--config", type=str, default="configs/infer.yaml", help="YAML config file")
     p.add_argument("--seconds", type=float, default=4.0, help="length of audio to generate (sec)")
-    p.add_argument("--steps", type=int, default=None, help="diffusion steps (None → take from YAML)")
-    p.add_argument("--guidance", type=float, default=None, help="CFG scale (None → take from YAML)")
+    p.add_argument("--steps", type=int, default=None, help="diffusion steps (None → take from config)")
+    p.add_argument("--guidance", type=float, default=None, help="CFG scale (None → take from config)")
 
     # misc
     p.add_argument("--device", type=str, default="cuda", help="cuda | cpu | cuda:1 …")
@@ -176,8 +187,8 @@ def main():
     args = parse_args()
 
     cfg = OmegaConf.load(args.config)
-    steps = int(args.steps if args.steps is not None else cfg.get("steps", 50))
-    guidance = float(args.guidance if args.guidance is not None else cfg.get("cfg_scale", 3.0))
+    steps = int(args.steps if args.steps is not None else cfg.inference.steps)
+    guidance = float(args.guidance if args.guidance is not None else cfg.inference.cfg_scale)
 
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
 
@@ -187,7 +198,13 @@ def main():
 
     # ---------------------------------------------------------------------
     print("[infer] encoding video …")
-    frames = video_to_tensor(args.video, device=device)
+    frames = video_to_tensor(
+        args.video, 
+        fps=cfg.data.fps,
+        frames=cfg.data.fixed_num_frames,
+        size=cfg.data.target_size,
+        device=device
+    )
 
     # ---------------------------------------------------------------------
     print(f"[infer] sampling {args.seconds}s / {steps} steps  (CFG={guidance}) …")

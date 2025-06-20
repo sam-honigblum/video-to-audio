@@ -7,3 +7,26 @@
 # cfg_scale       : 3.0
 # output_wav      : generated.wav
 # =============================================================================
+
+model:
+  base_width: 256
+  latent_channels: 8
+  cross_attention_dim: 512
+
+data:
+  fps: 4
+  latent_width: 64
+  target_size: 224
+  fixed_num_frames: 40
+
+diffusion:
+  timesteps: 1000
+  beta_start: 0.0001
+  beta_end: 0.02
+
+inference:
+  steps: 50
+  cfg_scale: 3.0
+  
+audio:
+  sample_rate: 16000
