@@ -269,21 +269,36 @@ def main():
     # ---------------------------------------------------------------------
     print(f"[infer] sampling {args.seconds}s / {steps} steps  (CFG={guidance}) …")
     with torch.no_grad():
-        # Create dummy audio input for CAVP encoder (it expects both video and audio)
-        # During inference, we don't have real audio, so we use a dummy tensor
+        # Create dummy audio input for CAVP encoder
         dummy_audio = torch.zeros(1, 1, 128, int(args.seconds * SAMPLE_RATE // HOP_LENGTH), device=device)
         
         # Get video conditioning from CAVP encoder
         video_cond, _ = ldm.cond_stage(frames, dummy_audio)
-        video_cond = ldm.pe(video_cond)  # Add positional encoding
+        video_cond = ldm.pe(video_cond)
         
-        # Create random noise latent  
+        # Use UNet directly instead of sampler
+        unet = ldm.unet
+        scheduler = ldm.sampler.scheduler
+        
+        # Create random noise latent
         zT = torch.randn(1, ldm.latent_channels, ldm.latent_width, ldm.latent_width, device=device)
         
-        # Run diffusion sampling with corrected sampler call
-        z0 = sampler.dpm_sample(zT, video_cond, steps, guidance)
+        # Set up scheduler
+        scheduler.set_timesteps(steps, device=device)
+        x = zT
         
-        # Decode latent to mel-spectrogram
+        # Run diffusion steps
+        for t in scheduler.timesteps:
+            if guidance == 1.0:
+                eps = unet(x, t, video_cond).sample
+            else:
+                eps_cond = unet(x, t, video_cond).sample
+                eps_uncond = unet(x, t, torch.zeros_like(video_cond)).sample
+                eps = eps_uncond + guidance * (eps_cond - eps_uncond)
+            
+            x = scheduler.step(eps, t, x, return_dict=False)
+        
+        z0 = x
         mel_db = ldm.decode(z0)
 
     print("[infer] mel → waveform …")
