@@ -271,30 +271,45 @@ def main():
     with torch.no_grad():
         # Create dummy audio input for CAVP encoder
         dummy_audio = torch.zeros(1, 1, 128, int(args.seconds * SAMPLE_RATE // HOP_LENGTH), device=device)
+        print(f"[infer] 🎵 Created dummy audio tensor: {dummy_audio.shape}")
         
         # Get video conditioning from CAVP encoder
+        print(f"[infer] 🎬 Extracting video conditioning from CAVP encoder...")
         video_cond, _ = ldm.cond_stage(frames, dummy_audio)
+        print(f"[infer] ✅ Video conditioning shape: {video_cond.shape}")
+        
         video_cond = ldm.pe(video_cond)
+        print(f"[infer] ✅ After positional encoding: {video_cond.shape}")
         
         # Use UNet directly instead of sampler
         unet = ldm.unet
         scheduler = ldm.sampler.scheduler
+        print(f"[infer] 🔧 Using scheduler: {type(scheduler).__name__}")
         
         # Create random noise latent
         zT = torch.randn(1, ldm.latent_channels, ldm.latent_width, ldm.latent_width, device=device)
+        print(f"[infer] 🎲 Initial noise tensor: {zT.shape}")
         
         # Set up scheduler
         scheduler.set_timesteps(steps, device=device)
+        print(f"[infer] ⏱️  Scheduler timesteps: {len(scheduler.timesteps)} steps")
         x = zT
         
         # Run diffusion steps
+        print(f"[infer] 🔄 Starting diffusion loop...")
         for i, t in enumerate(scheduler.timesteps):
+            # Print progress every 10 steps or on first/last steps
+            if i % 10 == 0 or i == len(scheduler.timesteps) - 1:
+                print(f"[infer] Step {i+1}/{len(scheduler.timesteps)} (t={t})")
+            
             # Ensure t is a tensor, not a tuple
             if isinstance(t, tuple):
                 t = t[0] if len(t) > 0 else torch.tensor(0, device=device)
+                print(f"[infer] ⚠️  Converted timestep tuple to tensor: {t}")
             
             # Ensure x is a tensor, not a tuple (from previous scheduler.step)
             if isinstance(x, tuple):
+                print(f"[infer] ⚠️  x is tuple, extracting tensor: {type(x)} -> tensor")
                 x = x[0]
             
             # Ensure x has the right shape for UNet
@@ -302,7 +317,12 @@ def main():
                 x_unet = x
             else:
                 # Reshape if needed
+                print(f"[infer] 🔄 Reshaping x from {x.shape} to UNet format")
                 x_unet = x.view(1, ldm.latent_channels, ldm.latent_width, ldm.latent_width)
+            
+            # Check tensor shapes before UNet call
+            if i == 0:  # Only print on first iteration to avoid spam
+                print(f"[infer] 📊 UNet inputs - x: {x_unet.shape}, t: {t}, video_cond: {video_cond.shape}")
             
             if guidance == 1.0:
                 eps = unet(x_unet, t, video_cond).sample
@@ -311,17 +331,34 @@ def main():
                 eps_uncond = unet(x_unet, t, torch.zeros_like(video_cond)).sample
                 eps = eps_uncond + guidance * (eps_cond - eps_uncond)
             
-            x = scheduler.step(eps, t, x, return_dict=False)
+            # Check epsilon shape
+            if i == 0:
+                print(f"[infer] 📊 UNet output eps: {eps.shape}")
+            
+            x = scheduler.step(eps, t, x_unet, return_dict=False)
             
             # Fix: Extract the tensor from the scheduler output
             if isinstance(x, tuple):
+                if i == 0:  # Only print on first occurrence
+                    print(f"[infer] 🔧 Scheduler returned tuple, extracting tensor")
                 x = x[0]  # Take the first element (prev_sample)
+            
+            # Check final x shape
+            if i == 0:
+                print(f"[infer] 📊 Updated x shape: {x.shape}")
         
+        print(f"[infer] ✅ Diffusion sampling complete!")
         z0 = x
+        print(f"[infer] 🎯 Final latent z0 shape: {z0.shape}")
+        
+        print(f"[infer] 🔄 Decoding latent to mel-spectrogram...")
         mel_db = ldm.decode(z0)
+        print(f"[infer] ✅ Decoded mel-spectrogram shape: {mel_db.shape}")
 
     print("[infer] mel → waveform …")
     waveform = mel_to_waveform(mel_db)
+    print(f"[infer] 🎵 Generated waveform shape: {waveform.shape}")
+    print(f"[infer] 💾 Saving audio to: {args.out_audio}")
     torchaudio.save(args.out_audio, waveform.unsqueeze(0), SAMPLE_RATE)
     print("[infer] ✅  wrote", args.out_audio)
 
