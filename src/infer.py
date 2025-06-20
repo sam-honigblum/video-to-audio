@@ -292,7 +292,7 @@ def main():
     # ---------------------------------------------------------------------
     print("[infer] encoding video …")
     frames = process_video_for_inference(args.video, device=device)
-
+ 
     # ---------------------------------------------------------------------
     print(f"[infer] sampling {args.seconds}s / {steps} steps  (CFG={guidance}) …")
     with torch.no_grad():
