@@ -389,7 +389,7 @@ def main():
     waveform = mel_to_waveform(mel_db)
     print(f"[infer] 🎵 Generated waveform shape: {waveform.shape}")
     print(f"[infer] 💾 Saving audio to: {args.out_audio}")
-    torchaudio.save(args.out_audio, waveform.unsqueeze(0), SAMPLE_RATE)
+    torchaudio.save(args.out_audio, waveform, SAMPLE_RATE)
     print("[infer] ✅  wrote", args.out_audio)
 
     # ------------------------------------------------------------------
