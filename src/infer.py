@@ -46,7 +46,7 @@ from models.cavp_encoder import CAVP_VideoOnly
 from models.latent_diffusion import LatentDiffusion
 from models.sampler import DPMSolverSampler
 from train_LDM import build_unet
-from src.utils.dataset import (
+from utils.dataset import (
     F_MAX,
     F_MIN,
     HOP_LENGTH,
