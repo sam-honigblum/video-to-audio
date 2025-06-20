@@ -29,6 +29,7 @@ All command‑line options are documented with ``--help``.
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
 import subprocess
 import sys
@@ -60,6 +61,10 @@ from utils.dataset import (
 # ---------------------------------------------------------------------------
 #   helpers
 # ---------------------------------------------------------------------------
+
+def get_project_root() -> pathlib.Path:
+    """Get the project root directory (parent of src/)."""
+    return pathlib.Path(__file__).parent.parent
 
 def video_to_tensor(
     path: str | pathlib.Path,
@@ -172,7 +177,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--out_video", type=str, default="foley_out.mp4", help="muxed output video (only if --mux)")
 
     # generation params
-    p.add_argument("--config", type=str, default="configs/infer.yaml", help="YAML config file")
+    p.add_argument("--config", type=str, default=None, help="YAML config file (default: configs/infer.yaml relative to project root)")
     p.add_argument("--seconds", type=float, default=4.0, help="length of audio to generate (sec)")
     p.add_argument("--steps", type=int, default=None, help="diffusion steps (None → take from config)")
     p.add_argument("--guidance", type=float, default=None, help="CFG scale (None → take from config)")
@@ -186,7 +191,22 @@ def parse_args() -> argparse.Namespace:
 def main():
     args = parse_args()
 
-    cfg = OmegaConf.load(args.config)
+    # Handle config path resolution
+    if args.config is None:
+        config_path = get_project_root() / "configs" / "infer.yaml"
+    else:
+        config_path = pathlib.Path(args.config)
+        if not config_path.is_absolute():
+            # If relative path, make it relative to project root
+            config_path = get_project_root() / config_path
+
+    if not config_path.exists():
+        print(f"[infer] ❌ Config file not found: {config_path}")
+        print(f"[infer] Project root: {get_project_root()}")
+        print(f"[infer] Current working directory: {os.getcwd()}")
+        sys.exit(1)
+
+    cfg = OmegaConf.load(config_path)
     steps = int(args.steps if args.steps is not None else cfg.inference.steps)
     guidance = float(args.guidance if args.guidance is not None else cfg.inference.cfg_scale)
 
