@@ -155,6 +155,16 @@ def build_model(
 
     sampler = DPMSolverSampler(ldm)
     ldm.eval()
+
+    def fixed_decode(self, latents: torch.Tensor) -> torch.Tensor:
+        """Fixed decode method that preserves channel dimension."""
+        decoded = self.vae.decode(latents).sample[:, 0:1]  # Keep channel dimension
+        spec = torch.nn.functional.interpolate(decoded, size=(self.mel_bins, self.T), mode="bilinear")
+        return spec
+
+    # Monkey-patch the decode method
+    ldm.first_stage.decode = lambda z: fixed_decode(ldm.first_stage, z)
+
     return ldm, sampler
 
 
@@ -261,6 +271,17 @@ def main():
     # ---------------------------------------------------------------------
     print("[infer] building model …")
     ldm, sampler = build_model(args.ldm_ckpt, args.cavp_ckpt, cfg, device)
+    
+    # Fix the decode method to handle channel dimension properly
+    def fixed_decode(first_stage_model, latents: torch.Tensor) -> torch.Tensor:
+        """Fixed decode method that preserves channel dimension."""
+        decoded = first_stage_model.vae.decode(latents).sample[:, 0:1]  # Keep channel dimension: (B, 1, H, W)
+        spec = torch.nn.functional.interpolate(decoded, size=(first_stage_model.mel_bins, first_stage_model.T), mode="bilinear")
+        return spec
+    
+    # Apply the fix
+    ldm.first_stage.decode = lambda z: fixed_decode(ldm.first_stage, z)
+    print("[infer] 🔧 Applied decode fix for channel dimension")
 
     # ---------------------------------------------------------------------
     print("[infer] encoding video …")
