@@ -414,6 +414,15 @@ def main():
 
     print("[infer] done ✔︎")
 
+    # Load and inspect the generated audio
+    waveform, sample_rate = torchaudio.load(args.out_audio)
+    print(f"Waveform shape: {waveform.shape}")
+    print(f"Sample rate: {sample_rate}")
+    print(f"Min value: {waveform.min():.6f}")
+    print(f"Max value: {waveform.max():.6f}")
+    print(f"RMS: {torch.sqrt(torch.mean(waveform**2)):.6f}")
+    print(f"Non-zero samples: {torch.count_nonzero(waveform)}")
+
 
 if __name__ == "__main__":
     main()
