@@ -292,7 +292,7 @@ def main():
     # ---------------------------------------------------------------------
     print("[infer] encoding video …")
     frames = process_video_for_inference(args.video, device=device)
- 
+
     # ---------------------------------------------------------------------
     print(f"[infer] sampling {args.seconds}s / {steps} steps  (CFG={guidance}) …")
     with torch.no_grad():
@@ -386,15 +386,7 @@ def main():
     waveform = mel_to_waveform(mel_db)
     print(f"[infer] 🎵 Generated waveform shape: {waveform.shape}")
     print(f"[infer] 💾 Saving audio to: {args.out_audio}")
-    
-    # Fix: Ensure waveform is 2D (channels, samples) for torchaudio.save
-    if waveform.dim() == 1:
-        waveform = waveform.unsqueeze(0)  # Add channel dimension: (samples,) -> (1, samples)
-    elif waveform.dim() == 3:
-        waveform = waveform.squeeze(0)    # Remove batch dimension: (1, 1, samples) -> (1, samples)
-    
-    print(f"[infer] 🔧 Adjusted waveform shape for saving: {waveform.shape}")
-    torchaudio.save(args.out_audio, waveform, SAMPLE_RATE)
+    torchaudio.save(args.out_audio, waveform.unsqueeze(0), SAMPLE_RATE)
     print("[infer] ✅  wrote", args.out_audio)
 
     # ------------------------------------------------------------------
