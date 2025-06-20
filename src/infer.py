@@ -227,23 +227,18 @@ def mel_to_waveform(mel_db: torch.Tensor) -> torch.Tensor:
     """Quick & dirty Griffin‑Lim: (1,1,128,T) log‑mel → mono waveform."""
     print(f"[debug] Input mel_db stats - min: {mel_db.min():.3f}, max: {mel_db.max():.3f}, mean: {mel_db.mean():.3f}")
     
-    # Try different mel scaling approaches
+    # Convert from VAE output scale to dB scale (same as training)
+    # The VAE is outputting values in [-2, 1] range, need to scale to [-80, 20] dB
+    mel_db = mel_db * 40.0 - 60.0  # Scale to typical dB range
+    
     mel_db = torch.clamp(mel_db, min=-80, max=20)  # Typical mel range
     
-    # Option 1: Standard log-mel conversion
+    # Standard log-mel conversion (same as training)
     mel_lin = 10.0 ** (mel_db.squeeze(0) / 10.0)
     
-    # Option 2: Try different scaling if Option 1 is too flat
-    if mel_lin.max() - mel_lin.min() < 0.1:  # If too flat
-        print(f"[debug] Mel too flat, trying alternative scaling...")
-        mel_lin = 10.0 ** (mel_db.squeeze(0) / 20.0)  # Less aggressive scaling
-    
-    # Option 3: Direct linear scaling for testing
-    # mel_lin = torch.exp(mel_db.squeeze(0))
-    
-    print(f"[debug] After conversion mel_lin stats - min: {mel_lin.min():.3f}, max: {mel_lin.max():.3f}")
+    print(f"[debug] After dB conversion mel_lin stats - min: {mel_lin.min():.3f}, max: {mel_lin.max():.3f}")
     print(f"[debug] Mel dynamic range: {mel_lin.max() - mel_lin.min():.3f}")
- 
+    
     inv_mel = torchaudio.transforms.InverseMelScale(
         n_stft=N_FFT // 2 + 1,
         n_mels=128,
