@@ -292,12 +292,15 @@ def main():
     # ---------------------------------------------------------------------
     print("[infer] encoding video …")
     frames = process_video_for_inference(args.video, device=device)
-
+    
     # ---------------------------------------------------------------------
     print(f"[infer] sampling {args.seconds}s / {steps} steps  (CFG={guidance}) …")
     with torch.no_grad():
-        # Create dummy audio input for CAVP encoder
-        dummy_audio = torch.zeros(1, 1, 128, int(args.seconds * SAMPLE_RATE // HOP_LENGTH), device=device)
+        # Calculate actual video duration from processed frames
+        video_duration = FIXED_NUM_FRAMES / TARGET_FPS  # 40 frames / 25 fps = 1.6 seconds
+        audio_time_steps = int(video_duration * SAMPLE_RATE // HOP_LENGTH)
+
+        dummy_audio = torch.zeros(1, 1, 128, audio_time_steps, device=device)
         print(f"[infer] 🎵 Created dummy audio tensor: {dummy_audio.shape}")
         
         # Get video conditioning from CAVP encoder
