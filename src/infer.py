@@ -170,7 +170,13 @@ def build_model(
 
 def mel_to_waveform(mel_db: torch.Tensor) -> torch.Tensor:
     """Quick & dirty Griffin‑Lim: (1,1,128,T) log‑mel → mono waveform."""
+    print(f"[debug] Input mel_db stats - min: {mel_db.min():.3f}, max: {mel_db.max():.3f}, mean: {mel_db.mean():.3f}")
+    
+    # Clamp mel values to reasonable range
+    mel_db = torch.clamp(mel_db, min=-80, max=20)  # Typical mel range
+    
     mel_lin = 10.0 ** (mel_db.squeeze(0) / 10.0)
+    print(f"[debug] After conversion mel_lin stats - min: {mel_lin.min():.3f}, max: {mel_lin.max():.3f}")
 
     inv_mel = torchaudio.transforms.InverseMelScale(
         n_stft=N_FFT // 2 + 1,
@@ -180,6 +186,7 @@ def mel_to_waveform(mel_db: torch.Tensor) -> torch.Tensor:
         f_max=F_MAX,
     ).to(mel_lin.device)
     spec = inv_mel(mel_lin)
+    print(f"[debug] Spectrogram stats - min: {spec.min():.3f}, max: {spec.max():.3f}")
 
     wave = torchaudio.functional.griffinlim(
         spec,
@@ -193,6 +200,13 @@ def mel_to_waveform(mel_db: torch.Tensor) -> torch.Tensor:
         length=None,
         rand_init=True,
     )
+    
+    # Normalize the output waveform
+    wave = torch.clamp(wave, min=-1.0, max=1.0)
+    if wave.abs().max() > 0:
+        wave = wave / wave.abs().max() * 0.8  # Scale to 80% to avoid clipping
+    
+    print(f"[debug] Final wave stats - min: {wave.min():.3f}, max: {wave.max():.3f}")
     return wave.cpu()
 
 
