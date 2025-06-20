@@ -181,12 +181,26 @@ def build_model(
         device=device,
     ).to(device)
 
+    # Load checkpoint and extract model weights
     ckpt = torch.load(ldm_ckpt, map_location="cpu", weights_only=False)
-    missing, unexpected = analyze_checkpoint_compatibility(ldm, ckpt)
+    
+    # Check if checkpoint has the expected structure
+    if "model" in ckpt:
+        print(f"[infer] 🔍 Checkpoint contains training state, extracting model weights...")
+        model_weights = ckpt["model"]
+        print(f"[infer] 📊 Training step: {ckpt.get('step', 'unknown')}")
+    else:
+        print(f"[infer] 🔍 Checkpoint appears to be direct model weights...")
+        model_weights = ckpt
+    
+    missing, unexpected = analyze_checkpoint_compatibility(ldm, model_weights)
     if missing or unexpected:
         print(f"[infer] ⚠️  state‑dict loaded with missing={len(missing)} unexpected={len(unexpected)}", file=sys.stderr)
         if len(missing) > 100:  # Too many missing keys suggests incompatible checkpoint
             print(f"[infer] ⚠️  Warning: Many missing keys ({len(missing)}). Check if checkpoint is compatible.", file=sys.stderr)
+
+    # Load the actual model weights
+    ldm.load_state_dict(model_weights, strict=False)
 
     sampler = DPMSolverSampler(ldm)
     ldm.eval()
