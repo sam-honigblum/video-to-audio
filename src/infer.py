@@ -227,11 +227,22 @@ def mel_to_waveform(mel_db: torch.Tensor) -> torch.Tensor:
     """Quick & dirty Griffin‑Lim: (1,1,128,T) log‑mel → mono waveform."""
     print(f"[debug] Input mel_db stats - min: {mel_db.min():.3f}, max: {mel_db.max():.3f}, mean: {mel_db.mean():.3f}")
     
-    # Clamp mel values to reasonable range
+    # Try different mel scaling approaches
     mel_db = torch.clamp(mel_db, min=-80, max=20)  # Typical mel range
     
+    # Option 1: Standard log-mel conversion
     mel_lin = 10.0 ** (mel_db.squeeze(0) / 10.0)
+    
+    # Option 2: Try different scaling if Option 1 is too flat
+    if mel_lin.max() - mel_lin.min() < 0.1:  # If too flat
+        print(f"[debug] Mel too flat, trying alternative scaling...")
+        mel_lin = 10.0 ** (mel_db.squeeze(0) / 20.0)  # Less aggressive scaling
+    
+    # Option 3: Direct linear scaling for testing
+    # mel_lin = torch.exp(mel_db.squeeze(0))
+    
     print(f"[debug] After conversion mel_lin stats - min: {mel_lin.min():.3f}, max: {mel_lin.max():.3f}")
+    print(f"[debug] Mel dynamic range: {mel_lin.max() - mel_lin.min():.3f}")
 
     inv_mel = torchaudio.transforms.InverseMelScale(
         n_stft=N_FFT // 2 + 1,
@@ -262,6 +273,13 @@ def mel_to_waveform(mel_db: torch.Tensor) -> torch.Tensor:
         wave = wave / wave.abs().max() * 0.8  # Scale to 80% to avoid clipping
     
     print(f"[debug] Final wave stats - min: {wave.min():.3f}, max: {wave.max():.3f}")
+
+    # Add this after mel generation to test
+    print(f"[debug] Testing mel conversion...")
+    test_mel = torch.randn_like(mel_db) * 10  # Random mel with more variance
+    test_lin = 10.0 ** (test_mel.squeeze(0) / 10.0)
+    print(f"[debug] Test mel range: {test_lin.max() - test_lin.min():.3f}")
+
     return wave.cpu()
 
 
