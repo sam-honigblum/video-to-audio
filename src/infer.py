@@ -75,7 +75,25 @@ def video_to_tensor(
 ) -> torch.Tensor:
     """Load video using the same logic as VidSpectroDataset.gen_vid()."""
     
-    frames_data, _, meta = read_video(str(path), pts_unit="sec")  # (T,H,W,C) uint8 CPU
+    # Check if file exists
+    path = pathlib.Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Video file not found: {path.absolute()}")
+    
+    print(f"[infer] 📹 Loading video: {path}")
+    
+    try:
+        frames_data, _, meta = read_video(str(path), pts_unit="sec")  # (T,H,W,C) uint8 CPU
+    except Exception as e:
+        print(f"[infer] ❌ Failed to load video: {e}")
+        print(f"[infer] 💡 Supported formats: .mp4, .avi, .mov, .mkv")
+        print(f"[infer] 📁 File path: {path.absolute()}")
+        raise
+    
+    if frames_data.shape[0] == 0:
+        raise ValueError(f"Video file contains no frames: {path}")
+    
+    print(f"[infer] 📊 Video info: {frames_data.shape[0]} frames, {frames_data.shape[1:3]} resolution")
     
     # Use the same logic as dataset.py gen_vid()
     T = frames_data.shape[0]
@@ -94,6 +112,7 @@ def video_to_tensor(
 
     # Reorder to (C, T, H, W) and add batch dimension
     frames_data = frames_data.permute(1, 0, 2, 3).unsqueeze(0)  # (1, C, T, H, W)
+    print(f"[infer] ✅ Video processed: {frames_data.shape} tensor")
     return frames_data.to(device, non_blocking=True)
 
 
@@ -128,10 +147,12 @@ def build_model(
         device=device,
     ).to(device)
 
-    ckpt = torch.load(ldm_ckpt, map_location="cpu")
+    ckpt = torch.load(ldm_ckpt, map_location="cpu", weights_only=False)
     missing, unexpected = ldm.load_state_dict(ckpt, strict=False)
     if missing or unexpected:
         print(f"[infer] ⚠️  state‑dict loaded with missing={len(missing)} unexpected={len(unexpected)}", file=sys.stderr)
+        if len(missing) > 100:  # Too many missing keys suggests incompatible checkpoint
+            print(f"[infer] ⚠️  Warning: Many missing keys ({len(missing)}). Check if checkpoint is compatible.", file=sys.stderr)
 
     sampler = DPMSolverSampler(ldm)
     ldm.eval()
@@ -191,6 +212,29 @@ def parse_args() -> argparse.Namespace:
 def main():
     args = parse_args()
 
+    # Validate required file paths
+    print(f"[infer] 🔍 Validating input files...")
+    
+    # Check video file
+    video_path = pathlib.Path(args.video)
+    if not video_path.exists():
+        print(f"[infer] ❌ Video file not found: {video_path.absolute()}")
+        print(f"[infer] 💡 Please check the --video argument")
+        sys.exit(1)
+    
+    # Check model checkpoints
+    ldm_path = pathlib.Path(args.ldm_ckpt)
+    if not ldm_path.exists():
+        print(f"[infer] ❌ LDM checkpoint not found: {ldm_path.absolute()}")
+        print(f"[infer] 💡 Please check the --ldm_ckpt argument")
+        sys.exit(1)
+        
+    cavp_path = pathlib.Path(args.cavp_ckpt)
+    if not cavp_path.exists():
+        print(f"[infer] ❌ CAVP checkpoint not found: {cavp_path.absolute()}")
+        print(f"[infer] 💡 Please check the --cavp_ckpt argument")
+        sys.exit(1)
+
     # Handle config path resolution
     if args.config is None:
         config_path = get_project_root() / "configs" / "infer.yaml"
@@ -206,11 +250,14 @@ def main():
         print(f"[infer] Current working directory: {os.getcwd()}")
         sys.exit(1)
 
+    print(f"[infer] ✅ All files found")
+    
     cfg = OmegaConf.load(config_path)
     steps = int(args.steps if args.steps is not None else cfg.inference.steps)
     guidance = float(args.guidance if args.guidance is not None else cfg.inference.cfg_scale)
 
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
+    print(f"[infer] 🖥️  Using device: {device}")
 
     # ---------------------------------------------------------------------
     print("[infer] building model …")
