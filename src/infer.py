@@ -185,7 +185,13 @@ def mel_to_waveform(mel_db: torch.Tensor) -> torch.Tensor:
         spec,
         n_fft=N_FFT,
         hop_length=HOP_LENGTH,
+        win_length=N_FFT,
         window=torch.hann_window(N_FFT).to(mel_lin.device),
+        power=2.0,
+        n_iter=32,
+        momentum=0.99,
+        length=None,
+        rand_init=True,
     )
     return wave.cpu()
 
