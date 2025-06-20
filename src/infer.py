@@ -399,6 +399,14 @@ def main():
         video_cond = ldm.pe(video_cond)
         print(f"[infer] ✅ After positional encoding: {video_cond.shape}")
         
+        # Add this right after video conditioning extraction (around line 320)
+        print(f"[debug] 🎬 Video conditioning debugging:")
+        print(f"[debug] Video cond mean: {video_cond.mean():.6f}")
+        print(f"[debug] Video cond std: {video_cond.std():.6f}")
+        print(f"[debug] Video cond min: {video_cond.min():.6f}")
+        print(f"[debug] Video cond max: {video_cond.max():.6f}")
+        print(f"[debug] Video cond first 5 values: {video_cond.flatten()[:5]}")
+        
         # Use UNet directly instead of sampler
         unet = ldm.unet
         scheduler = ldm.sampler.scheduler
@@ -407,6 +415,12 @@ def main():
         # Create random noise latent
         zT = torch.randn(1, ldm.latent_channels, ldm.latent_width, ldm.latent_width, device=device)
         print(f"[infer] 🎲 Initial noise tensor: {zT.shape}")
+        
+        # Add this right after noise initialization (around line 330)
+        print(f"[debug] 🎲 Initial noise debugging:")
+        print(f"[debug] Noise mean: {zT.mean():.6f}")
+        print(f"[debug] Noise std: {zT.std():.6f}")
+        print(f"[debug] Noise first 5 values: {zT.flatten()[:5]}")
         
         # Set up scheduler
         scheduler.set_timesteps(steps, device=device)
@@ -464,6 +478,14 @@ def main():
             # Check final x shape
             if i == 0:
                 print(f"[infer] 📊 Updated x shape: {x.shape}")
+            
+            # Add this after the first diffusion step (around line 360)
+            if i == 0:
+                print(f"[debug] 🔄 First step debugging:")
+                print(f"[debug] Epsilon mean: {eps.mean():.6f}")
+                print(f"[debug] Epsilon std: {eps.std():.6f}")
+                print(f"[debug] Updated x mean: {x.mean():.6f}")
+                print(f"[debug] Updated x std: {x.std():.6f}")
         
         print(f"[infer] ✅ Diffusion sampling complete!")
         z0 = x
