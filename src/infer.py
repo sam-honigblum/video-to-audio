@@ -269,13 +269,22 @@ def main():
     # ---------------------------------------------------------------------
     print(f"[infer] sampling {args.seconds}s / {steps} steps  (CFG={guidance}) …")
     with torch.no_grad():
-        mel_db = ldm.generate(
-            frames,
-            seconds=args.seconds,
-            steps=steps,
-            guidance=guidance,
-            sampler=sampler,
-        )  # (1,1,128,T)
+        # Create dummy audio input for CAVP encoder (it expects both video and audio)
+        # During inference, we don't have real audio, so we use a dummy tensor
+        dummy_audio = torch.zeros(1, 1, 128, int(args.seconds * SAMPLE_RATE // HOP_LENGTH), device=device)
+        
+        # Get video conditioning from CAVP encoder
+        video_cond, _ = ldm.cond_stage(frames, dummy_audio)
+        video_cond = ldm.pe(video_cond)  # Add positional encoding
+        
+        # Create random noise latent  
+        zT = torch.randn(1, ldm.latent_channels, ldm.latent_width, ldm.latent_width, device=device)
+        
+        # Run diffusion sampling with corrected sampler call
+        z0 = sampler.dpm_sample(zT, video_cond, steps, guidance)
+        
+        # Decode latent to mel-spectrogram
+        mel_db = ldm.decode(z0)
 
     print("[infer] mel → waveform …")
     waveform = mel_to_waveform(mel_db)
