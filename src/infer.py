@@ -156,10 +156,16 @@ def build_model(
     sampler = DPMSolverSampler(ldm)
     ldm.eval()
 
-    def fixed_decode(self, latents: torch.Tensor) -> torch.Tensor:
+    def fixed_decode(first_stage_model, latents: torch.Tensor) -> torch.Tensor:
         """Fixed decode method that preserves channel dimension."""
-        decoded = self.vae.decode(latents).sample[:, 0:1]  # Keep channel dimension
-        spec = torch.nn.functional.interpolate(decoded, size=(self.mel_bins, self.T), mode="bilinear")
+        decoded = first_stage_model.vae.decode(latents).sample[:, 0:1]  # Keep channel dimension: (B, 1, H, W)
+        spec = torch.nn.functional.interpolate(decoded, size=(first_stage_model.mel_bins, first_stage_model.T), mode="bilinear")
+        
+        # Check for NaN values
+        if torch.isnan(spec).any():
+            print(f"[infer] ⚠️  WARNING: NaN values detected in decoded mel! Replacing with zeros.")
+            spec = torch.nan_to_num(spec, nan=0.0, posinf=0.0, neginf=0.0)
+        
         return spec
 
     # Monkey-patch the decode method
@@ -297,6 +303,12 @@ def main():
         """Fixed decode method that preserves channel dimension."""
         decoded = first_stage_model.vae.decode(latents).sample[:, 0:1]  # Keep channel dimension: (B, 1, H, W)
         spec = torch.nn.functional.interpolate(decoded, size=(first_stage_model.mel_bins, first_stage_model.T), mode="bilinear")
+        
+        # Check for NaN values
+        if torch.isnan(spec).any():
+            print(f"[infer] ⚠️  WARNING: NaN values detected in decoded mel! Replacing with zeros.")
+            spec = torch.nan_to_num(spec, nan=0.0, posinf=0.0, neginf=0.0)
+        
         return spec
     
     # Apply the fix
